@@ -12,6 +12,10 @@ COMMON_SRC = utils.hh utils.cc convcode.hh convcode.cc random.hh random.cc wavda
 	     resample.cc resample.hh wavpipeinputstream.cc wavpipeinputstream.hh wavchunkloader.cc wavchunkloader.hh
 COMMON_LIBS = $(SNDFILE_LIBS) $(FFTW_LIBS) $(LIBGCRYPT_LIBS) $(LIBMPG123_LIBS) $(FFMPEG_LIBS) $(LTLIBZITA_RESAMPLER)
 
+if COND_WINDOWS
+COMMON_LIBS += -lbcrypt
+endif
+
 AM_CXXFLAGS = $(SNDFILE_CFLAGS) $(FFTW_CFLAGS) $(LIBGCRYPT_CFLAGS) $(LIBMPG123_CFLAGS) $(FFMPEG_CFLAGS)
 
 audiowmark_SOURCES = audiowmark.cc $(COMMON_SRC)

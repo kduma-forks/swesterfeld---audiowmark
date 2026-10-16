@@ -51,13 +51,15 @@ WavChunkLoader::WavChunkLoader (const std::string& filename) :
 {
 }
 
+WavChunkLoader::WavChunkLoader(std::unique_ptr<AudioInputStream> stream) : m_in_stream(std::move(stream)) {}
+
 Error
 WavChunkLoader::open()
 {
   assert (m_state == State::NEW);
 
   Error err;
-  m_in_stream = AudioInputStream::create (m_filename, err);
+  if (!m_in_stream) m_in_stream = AudioInputStream::create (m_filename, err);
   if (err)
     {
       m_state = State::ERROR;
@@ -72,7 +74,7 @@ WavChunkLoader::open()
     m_resampler.reset (ResamplerImpl::create (m_in_stream->n_channels(), m_in_stream->sample_rate(), m_wav_data.sample_rate()));
 
   /* maximum length of the m_wav_data samples (chunk size) */
-  m_wav_data_max_size = llround (Params::get_chunk_size * 60 * m_wav_data.sample_rate()) * m_wav_data.n_channels();
+  m_wav_data_max_size = llround (params().get_chunk_size * 60 * m_wav_data.sample_rate()) * m_wav_data.n_channels();
 
   /* overlap size:
    *  - should be large enough for BlockDecoder overlap (1 AB block == 2 blocks)
@@ -82,6 +84,9 @@ WavChunkLoader::open()
   const double speed_factor = 1.3;
   const double block_seconds = (mark_sync_frame_count() + mark_data_frame_count()) * Params::frame_size / double (Params::mark_sample_rate);
   m_n_overlap_samples = llround (overlap_blocks * block_seconds * speed_factor * m_wav_data.sample_rate()) * m_wav_data.n_channels();
+
+  if (m_wav_data_max_size <= m_n_overlap_samples)
+    return Error("chunk size must exceed watermark overlap");
 
   if (m_in_stream->n_frames() != AudioInputStream::N_FRAMES_UNKNOWN)
     {
@@ -144,9 +149,9 @@ WavChunkLoader::load_next_chunk()
         m_state = State::DONE;
     }
 
-  if (Params::test_truncate)
+  if (params().test_truncate)
     {
-      const size_t want_n_samples = m_wav_data.sample_rate() * m_wav_data.n_channels() * Params::test_truncate;
+      const size_t want_n_samples = m_wav_data.sample_rate() * m_wav_data.n_channels() * params().test_truncate;
       if (want_n_samples > m_wav_data_max_size)
         return Error ("test truncate must be less than chunk size");
 

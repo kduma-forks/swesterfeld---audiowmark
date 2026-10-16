@@ -81,7 +81,7 @@ print_usage()
   printf ("Options for add / get / cmp:\n");
   printf ("  --key <file>            load watermarking key from file\n");
   printf ("  --short <bits>          enable short payload mode\n");
-  printf ("  --strength <s>          set watermark strength              [%.6g]\n", Params::water_delta * 1000);
+  printf ("  --strength <s>          set watermark strength              [%.6g]\n", params().water_delta * 1000);
   printf ("\n");
   printf ("  --input-format raw      use raw stream as input\n");
   printf ("  --output-format raw     use raw stream as output\n");
@@ -110,7 +110,7 @@ print_usage_hls()
   printf ("  --strict              treat (minor) problems as errors\n");
   printf ("\n");
   printf ("Watermarking options:\n");
-  printf ("  --strength <s>        set watermark strength              [%.6g]\n", Params::water_delta * 1000);
+  printf ("  --strength <s>        set watermark strength              [%.6g]\n", params().water_delta * 1000);
   printf ("  --short <bits>        enable short payload mode\n");
   printf ("  --key <file>          load watermarking key from file\n");
   printf ("  --bit-rate            set AAC bitrate\n");
@@ -674,18 +674,18 @@ parse_shared_options (ArgParser& ap)
   int i;
   if (ap.parse_opt ("--short", i))
     {
-      Params::payload_size = i;
-      if (!short_code_init (Params::payload_size))
+      params().payload_size = i;
+      if (!short_code_init (params().payload_size))
         {
-          error ("audiowmark: unsupported short payload size %zd\n", Params::payload_size);
+          error ("audiowmark: unsupported short payload size %zd\n", params().payload_size);
           exit (1);
         }
-      Params::payload_short = true;
+      params().payload_short = true;
     }
-  ap.parse_opt ("--frames-per-bit", Params::frames_per_bit);
+  ap.parse_opt ("--frames-per-bit", params().frames_per_bit);
   if (ap.parse_opt ("--linear"))
     {
-      Params::mix = false;
+      params().mix = false;
     }
 }
 
@@ -734,88 +734,88 @@ parse_add_options (ArgParser& ap)
   int i;
   float f;
 
-  ap.parse_opt ("--set-input-label", Params::input_label);
-  ap.parse_opt ("--set-output-label", Params::output_label);
+  ap.parse_opt ("--set-input-label", params().input_label);
+  ap.parse_opt ("--set-output-label", params().output_label);
   if (ap.parse_opt ("--snr"))
     {
-      Params::snr = true;
+      params().snr = true;
     }
   if (ap.parse_opt ("--input-format", s))
     {
-      Params::input_format = parse_format (s);
+      params().input_format = parse_format (s);
     }
   if (ap.parse_opt ("--output-format", s))
     {
-      Params::output_format = parse_format (s);
+      params().output_format = parse_format (s);
     }
   if (ap.parse_opt ("--format", s))
     {
-      Params::input_format = Params::output_format = parse_format (s);
+      params().input_format = params().output_format = parse_format (s);
     }
   if (ap.parse_opt ( "--raw-input-endian", s))
     {
       auto e = parse_endian (s);
-      Params::raw_input_format.set_endian (e);
+      params().raw_input_format.set_endian (e);
     }
   if (ap.parse_opt ("--raw-output-endian", s))
     {
       auto e = parse_endian (s);
-      Params::raw_output_format.set_endian (e);
+      params().raw_output_format.set_endian (e);
     }
   if (ap.parse_opt ("--raw-endian", s))
     {
       auto e = parse_endian (s);
-      Params::raw_input_format.set_endian (e);
-      Params::raw_output_format.set_endian (e);
+      params().raw_input_format.set_endian (e);
+      params().raw_output_format.set_endian (e);
     }
   if (ap.parse_opt ("--raw-input-encoding", s))
     {
-      parse_encoding (s, Params::raw_input_format);
+      parse_encoding (s, params().raw_input_format);
     }
   if (ap.parse_opt ("--raw-output-encoding", s))
     {
-      parse_encoding (s, Params::raw_output_format);
+      parse_encoding (s, params().raw_output_format);
     }
   if (ap.parse_opt ("--raw-encoding", s))
     {
-      parse_encoding (s, Params::raw_input_format);
-      parse_encoding (s, Params::raw_output_format);
+      parse_encoding (s, params().raw_input_format);
+      parse_encoding (s, params().raw_output_format);
     }
   if (ap.parse_opt ("--raw-input-bits", i))
     {
-      update_raw_bits (Params::raw_input_format, i);
+      update_raw_bits (params().raw_input_format, i);
     }
   if (ap.parse_opt ("--raw-output-bits", i))
     {
-      update_raw_bits (Params::raw_output_format, i);
+      update_raw_bits (params().raw_output_format, i);
     }
   if (ap.parse_opt ("--raw-bits", i))
     {
-      update_raw_bits (Params::raw_input_format, i);
-      update_raw_bits (Params::raw_output_format, i);
+      update_raw_bits (params().raw_input_format, i);
+      update_raw_bits (params().raw_output_format, i);
     }
   if (ap.parse_opt ("--raw-channels", i))
     {
-      Params::raw_input_format.set_channels (i);
-      Params::raw_output_format.set_channels (i);
+      params().raw_input_format.set_channels (i);
+      params().raw_output_format.set_channels (i);
     }
   if (ap.parse_opt ("--raw-rate", i))
     {
-      Params::raw_input_format.set_sample_rate (i);
-      Params::raw_output_format.set_sample_rate (i);
+      params().raw_input_format.set_sample_rate (i);
+      params().raw_output_format.set_sample_rate (i);
     }
   if (ap.parse_opt ("--test-no-limiter"))
     {
-      Params::test_no_limiter = true;
+      params().test_no_limiter = true;
     }
-  if (Params::input_format == Format::RF64)
+  if (params().input_format == Format::RF64)
     {
       error ("audiowmark: using rf64 as input format has no effect\n");
       exit (1);
     }
   if (ap.parse_opt ("--strength", f))
     {
-      Params::water_delta = f / 1000;
+      params().water_delta = f / 1000;
     }
 }
 
@@ -826,32 +826,32 @@ parse_get_options (ArgParser& ap)
   float f;
   int i;
 
-  ap.parse_opt ("--test-cut", Params::test_cut);
-  ap.parse_opt ("--test-truncate", Params::test_truncate);
+  ap.parse_opt ("--test-cut", params().test_cut);
+  ap.parse_opt ("--test-truncate", params().test_truncate);
 
   if (ap.parse_opt ("--hard"))
     {
-      Params::hard = true;
+      params().hard = true;
     }
   if (ap.parse_opt ("--test-no-sync"))
     {
-      Params::test_no_sync = true;
+      params().test_no_sync = true;
     }
   int speed_options = 0;
   if (ap.parse_opt ("--detect-speed"))
     {
-      Params::detect_speed = true;
+      params().detect_speed = true;
       speed_options++;
     }
   if (ap.parse_opt ("--detect-speed-patient"))
     {
-      Params::detect_speed_patient = true;
+      params().detect_speed_patient = true;
       speed_options++;
     }
   if (ap.parse_opt ("--try-speed", f))
     {
       speed_options++;
-      Params::try_speed = f;
+      params().try_speed = f;
     }
   if (speed_options > 1)
     {
@@ -860,11 +860,11 @@ parse_get_options (ArgParser& ap)
     }
   if (ap.parse_opt ("--test-speed", f))
     {
-      Params::test_speed = f;
+      params().test_speed = f;
     }
   if (ap.parse_opt ("--json", s))
     {
-      Params::json_output = s;
+      params().json_output = s;
     }
   if (ap.parse_opt ("--chunk-size", f))
     {
@@ -873,11 +873,11 @@ parse_get_options (ArgParser& ap)
           error ("audiowmark: --chunk-size needs to be at least 10 minutes\n");
           exit (1);
         }
-      Params::get_chunk_size = f;
+      params().get_chunk_size = f;
     }
   if (ap.parse_opt ("--sync-threshold", f))
     {
-      Params::sync_threshold2 = f;
+      params().sync_threshold2 = f;
     }
   if (ap.parse_opt ("--n-best", i))
     {
@@ -886,7 +886,7 @@ parse_get_options (ArgParser& ap)
           error ("audiowmark: --n-best should not be a negative number\n");
           exit (1);
         }
-      Params::get_n_best = i;
+      params().get_n_best = i;
     }
 }
 
@@ -945,17 +945,17 @@ cli_main (int argc, char **argv)
     }
   if (ap.parse_opt ("--strict"))
     {
-      Params::strict = true;
+      params().strict = true;
     }
   if (ap.parse_cmd ("hls-add"))
     {
       parse_shared_options (ap);
 
-      ap.parse_opt ("--bit-rate", Params::hls_bit_rate);
+      ap.parse_opt ("--bit-rate", params().hls_bit_rate);
 
       float f;
       if (ap.parse_opt ("--strength", f))
-        Params::water_delta = f / 1000;
+        params().water_delta = f / 1000;
 
       Key key = parse_key (ap);
       args = parse_positional (ap, "input_ts", "output_ts", "message_hex");
@@ -963,7 +963,7 @@ cli_main (int argc, char **argv)
     }
   else if (ap.parse_cmd ("hls-prepare"))
     {
-      ap.parse_opt ("--bit-rate", Params::hls_bit_rate);
+      ap.parse_opt ("--bit-rate", params().hls_bit_rate);
 
       args = parse_positional (ap, "input_dir", "output_dir", "playlist_name", "audio_master");
       return hls_prepare (args[0], args[1], args[2], args[3]);
@@ -991,7 +991,7 @@ cli_main (int argc, char **argv)
       parse_shared_options (ap);
       parse_get_options (ap);
 
-      ap.parse_opt ("--expect-matches", Params::expect_matches);
+      ap.parse_opt ("--expect-matches", params().expect_matches);
 
       vector<Key> key_list = parse_key_list (ap);
       args = parse_positional (ap, "watermarked_wav", "message_hex");

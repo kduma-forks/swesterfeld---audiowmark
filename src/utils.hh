@@ -22,6 +22,7 @@
 #include <string>
 #include <stdexcept>
 #include <cstdio>
+#include <mutex>
 
 #ifndef __STDC_FORMAT_MACROS
 // some compilers/platforms (i.e. very old macOS) need this for macros like PRId64 (#61)
@@ -146,6 +147,10 @@ public:
   }
 };
 
+
+std::mutex& sndfile_metadata_mutex();
+
+class EngineError : public std::runtime_error { public: using std::runtime_error::runtime_error; };
 FILE *utf8_fopen(const std::string& path, const char *mode);
 #ifdef _WIN32
 std::wstring utf8_wide(const std::string& text);

@@ -41,7 +41,7 @@ get_speed_clip (double location, const WavData& in_data, double clip_seconds)
   size_t start_point = start_sec * in_data.sample_rate();
   size_t end_point = std::min<size_t> (start_point + clip_seconds * in_data.sample_rate(), in_data.n_frames());
 #if 0
-  printf ("[%f %f] l%f\n", double (start_point) / in_data.sample_rate(), double (end_point) / in_data.sample_rate(),
+  if (!params().quiet) printf ("[%f %f] l%f\n", double (start_point) / in_data.sample_rate(), double (end_point) / in_data.sample_rate(),
                            double (end_point - start_point) / in_data.sample_rate());
 #endif
   vector<float> out_signal (in_data.samples().begin() + start_point * in_data.n_channels(),
@@ -448,7 +448,7 @@ public:
     auto bound = [&] (float f) {
       return 100 * pow (scan_params.step, f * (scan_params.n_center_steps * (scan_params.n_steps * 2 + 1) + scan_params.n_steps));
     };
-    printf ("range = [ %.2f .. %.2f ]\n", bound (-1), bound (1));
+    if (!params().quiet) printf ("range = [ %.2f .. %.2f ]\n", bound (-1), bound (1));
   }
 
   vector<SpeedSync::Jobs> get_jobs (const Key& key, const SpeedScanParams& scan_params, const vector<double>& speeds);
@@ -646,7 +646,7 @@ detect_speed (const vector<Key>& key_list, const WavData& in_data, bool print_re
       .n_steps        = 11,
       .n_center_steps = 28,
     };
-  const SpeedScanParams scan1 = Params::detect_speed_patient ? scan1_patient : scan1_normal;
+  const SpeedScanParams scan1 = params().detect_speed_patient ? scan1_patient : scan1_normal;
 
   const SpeedScanParams scan2_normal /* second pass: improve approximation */
     {
@@ -660,7 +660,7 @@ detect_speed (const vector<Key>& key_list, const WavData& in_data, bool print_re
       .step           = 1.000175,
       .n_steps        = 1,
     };
-  const SpeedScanParams scan2 = Params::detect_speed_patient ? scan2_patient : scan2_normal;
+  const SpeedScanParams scan2 = params().detect_speed_patient ? scan2_patient : scan2_normal;
 
   const SpeedScanParams scan3 /* third pass: fast refine (not always perfect) */
     {
@@ -670,7 +670,7 @@ detect_speed (const vector<Key>& key_list, const WavData& in_data, bool print_re
     };
   const double scan3_smooth_distance = 20;
   const double speed_sync_threshold = 0.4;
-  const int    n_best = Params::detect_speed_patient ? 15 : 5;
+  const int    n_best = params().detect_speed_patient ? 15 : 5;
 
   // SpeedSearch::debug_range (scan1);
 
@@ -687,6 +687,7 @@ detect_speed (const vector<Key>& key_list, const WavData& in_data, bool print_re
 
   auto run_search = [&] (const SpeedScanParams& scan_params, auto get_speeds) {
     vector<SpeedSync::Jobs> jobs;
+    PoolDrain drain(thread_pool);
 
     for (auto& key_speed_search : key_speed_search_vec)
       {
@@ -762,11 +763,11 @@ detect_speed (const vector<Key>& key_list, const WavData& in_data, bool print_re
       for (auto score : key_speed_search.scores)
         best_quality = max (best_quality, score.quality);
 
-      if (print_results)
+      if (print_results && !params().quiet)
         {
           double delta = -1;
-          if (Params::test_speed > 0)
-            delta = 100 * fabs (best_speed - Params::test_speed) / Params::test_speed;
+          if (params().test_speed > 0)
+            delta = 100 * fabs (best_speed - params().test_speed) / params().test_speed;
           printf ("detect_speed %f %f %.4f\n", best_speed, best_quality, delta);
         }
 

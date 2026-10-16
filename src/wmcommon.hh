@@ -34,32 +34,15 @@ class Params
 {
 public:
   static constexpr size_t frame_size      = 1024;
-  static           int    frames_per_bit;
+
   static constexpr size_t bands_per_frame = 30;
   static constexpr int max_band          = 100;
   static constexpr int min_band          = 20;
-
-  static           double water_delta;
-  static           std::string json_output;
-  static           bool strict;
-  static           bool mix;
-  static           bool hard;                      // hard decode bits? (soft decoding is better)
-  static           bool snr;                       // compute/show snr while adding watermark
-
-  static           bool detect_speed;
-  static           bool detect_speed_patient;
-  static           double try_speed;               // manual speed correction
-  static           double test_speed;              // for debugging --detect-speed
-
-  static           size_t payload_size;            // number of payload bits for the watermark
-  static           bool   payload_short;
 
   static constexpr int sync_bits           = 6;
   static constexpr int sync_frames_per_bit = 85;
   static constexpr int sync_search_step    = 256;
   static constexpr int sync_search_fine    = 8;
-  static           double sync_threshold2;         // minimum refined quality
-  static           int get_n_best;                 // minimum number of matches per decode step
 
   static constexpr size_t frames_pad_start = 250; // padding at start, in case track starts with silence
   static constexpr int mark_sample_rate = 44100; // watermark generation and detection sample rate
@@ -67,25 +50,53 @@ public:
   static constexpr double limiter_block_size_ms = 1000;
   static constexpr double limiter_ceiling       = 0.99;
 
-  static           double get_chunk_size;          // chunk size for audiowmark get to reduce memory usage
 
-  static           int test_cut; // for sync test
-  static           bool test_no_sync;
-  static           bool test_no_limiter;
-  static           int test_truncate;
-  static           int expect_matches;
+};
 
-  static           Format input_format;
-  static           Format output_format;
+class EngineConfig
+{
+public:
+  int frames_per_bit = 2;
+  double water_delta = 0.01;
+  std::string json_output;
+  bool strict = false;
+  bool mix = true;
+  bool hard = false;
+  bool snr = false;
+  bool detect_speed = false;
+  bool detect_speed_patient = false;
+  double try_speed = -1;
+  double test_speed = -1;
+  size_t payload_size = 128;
+  bool payload_short = false;
+  double sync_threshold2 = 0.35;
+  int get_n_best = 8;
+  double get_chunk_size = 30;
+  int test_cut = 0;
+  bool test_no_sync = false;
+  bool test_no_limiter = false;
+  int test_truncate = 0;
+  int expect_matches = -1;
+  Format input_format = Format::AUTO;
+  Format output_format = Format::AUTO;
+  RawFormat raw_input_format;
+  RawFormat raw_output_format;
+  int hls_bit_rate = 0;
+  std::string input_label;
+  std::string output_label;
+  size_t short_k = 0; // immutable short-code selection inherited by CLI workers
+  unsigned workers = 0; // CLI: hardware concurrency; SDK: explicit limit
+  bool quiet = false;
+};
 
-  static           RawFormat raw_input_format;
-  static           RawFormat raw_output_format;
-
-  static           int hls_bit_rate;
-
-  // input/output labels can be set for pretty output for videowmark add
-  static           std::string input_label;
-  static           std::string output_label;
+EngineConfig& params();
+class ConfigScope
+{
+  EngineConfig *previous;
+public:
+  explicit ConfigScope (EngineConfig& config);
+  ~ConfigScope();
+  ConfigScope(const ConfigScope&) = delete;
 };
 
 typedef std::array<int, 30> UpDownArray;
@@ -225,6 +236,13 @@ db_from_complex (std::complex<float> f, float min_dB)
 
 int add_stream_watermark (const Key& key, AudioInputStream *in_stream, AudioOutputStream *out_stream, const std::string& bits, size_t zero_frames);
 int add_watermark (const Key& key, const std::string& infile, const std::string& outfile, const std::string& bits);
+struct EngineDetection {
+  std::vector<int> bits;
+  uint32_t key_index, block_type;
+  std::string key_name;
+  double time, quality, decode_error, ranking, speed;
+};
 int get_watermark (const std::vector<Key>& key_list, const std::string& infile, const std::string& orig_pattern);
+std::vector<EngineDetection> detect_watermark(const std::vector<Key>& keys, std::unique_ptr<AudioInputStream> stream);
 
 #endif /* AUDIOWMARK_WM_COMMON_HH */

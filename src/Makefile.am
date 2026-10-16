@@ -87,10 +87,11 @@ check_PROGRAMS = testapi
 TESTS = testapi
 testapi_SOURCES = testapi.cc
 testapi_LDADD = $(SDK_LIB) libengine.la $(COMMON_LIBS)
+testapi_CPPFLAGS = $(AM_CPPFLAGS)
 if COND_WINDOWS_STATIC_SDK
 # Full releases disable shared libraries, so libtool selects the static SDK
 # archive. Suppress dllimport references in this in-tree test consumer.
-testapi_CPPFLAGS = $(AM_CPPFLAGS) -DAUDIOWMARK_STATIC
+testapi_CPPFLAGS += -DAUDIOWMARK_STATIC
 endif
 if COND_WITH_FFMPEG
 libengine_la_SOURCES += hlsoutputstream.cc hlsoutputstream.hh

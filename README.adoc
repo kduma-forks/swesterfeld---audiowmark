@@ -47,6 +47,22 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+== Portable CLI Downloads
+
+GitHub Releases provide portable CLI packages for Windows 7 SP1 x64,
+Linux x86_64/ARM64, and macOS 15+ Intel/Apple Silicon. Download the matching
+`audiowmark-VERSION-cli-TARGET` archive from
+https://github.com/kduma-forks/swesterfeld---audiowmark/releases[GitHub Releases], verify
+`SHA256SUMS`, extract it, and run the program in `bin/`. Linux CLI packages
+use musl and are fully static, so the same executable works on glibc and Alpine
+systems. The executable does not require separately installed audio libraries. Windows packages use MSVCRT and macOS packages use system libraries
+with ad hoc signatures.
+
+Portable archives include WAV/FLAC/MP3/Ogg support. FFmpeg, HLS and `videowmark`
+are available through an optional source build. The release also provides
+matching source archives, pinned dependency sources, build scripts and
+licenses. See link:docs/releasing.md[release builds and verification].
+
 == Adding a Watermark
 
 To add a watermark to the soundfile in.wav with a 128-bit message (which is
@@ -743,9 +759,9 @@ installed.
 
 == Compiling from Source on Windows/Cygwin
 
-Windows is not an officially supported platform. However, if you want to
-build audiowmark (and videowmark) from source on windows, one way to do
-so is to use Cygwin. Andreas Strohmeier provided
+For the portable Windows 7 SP1 x64 package and MINGW64/MSVCRT source recipe,
+see link:docs/releasing.md[release builds]. Cygwin is an alternative source
+build environment, including for `videowmark`. Andreas Strohmeier provided
 https://raw.githubusercontent.com/swesterfeld/audiowmark/master/docs/win-x64-build-guide.txt[*build instructions for Cygwin*].
 
 == Dependencies

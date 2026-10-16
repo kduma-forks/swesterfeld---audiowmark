@@ -88,6 +88,7 @@ pushd "$RELEASE_WORK/build/project" >/dev/null
  if [[ -n "${SANITIZER:-}" ]]; then
    make -C src check -j"$JOBS" || test_failure $?
    (cd src && ./testthreadpool) || test_failure $?
+   make -C tests format-test pipe-test || test_failure $?
  else
    make check -j"$JOBS" || test_failure $?
  fi

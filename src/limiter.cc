@@ -51,14 +51,14 @@ Limiter::process (const vector<float>& samples)
   buffer.insert (buffer.end(), samples.begin(), samples.end());
 
   /* need at least two complete blocks in buffer to produce output */
-  const uint buffered_blocks = buffer.size() / n_channels / block_size;
+  const unsigned int buffered_blocks = buffer.size() / n_channels / block_size;
   if (buffered_blocks < 2)
     return {};
 
-  const uint blocks_todo = buffered_blocks - 1;
+  const unsigned int blocks_todo = buffered_blocks - 1;
 
   vector<float> out (blocks_todo * block_size * n_channels);
-  for (uint b = 0; b < blocks_todo; b++)
+  for (unsigned int b = 0; b < blocks_todo; b++)
     process_block (&buffer[b * block_size * n_channels], &out[b * block_size * n_channels]);
 
   buffer.erase (buffer.begin(), buffer.begin() + blocks_todo * block_size * n_channels);
@@ -91,7 +91,7 @@ float
 Limiter::block_max (const float *in)
 {
   float maximum = ceiling;
-  for (uint x = 0; x < block_size * n_channels; x++)
+  for (unsigned int x = 0; x < block_size * n_channels; x++)
     maximum = max (maximum, fabs (in[x]));
   return maximum;
 }
@@ -114,7 +114,7 @@ Limiter::process_block (const float *in, float *out)
       const float scale = scale_start + i * scale_step;
 
       // debug_scale (scale);
-      for (uint c = 0; c < n_channels; c++)
+      for (unsigned int c = 0; c < n_channels; c++)
         out[i * n_channels + c] = in[i * n_channels + c] * scale;
     }
 

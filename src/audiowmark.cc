@@ -33,6 +33,12 @@
 #include "wmcommon.hh"
 #include "shortcode.hh"
 #include "hls.hh"
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#include <io.h>
+#include <fcntl.h>
+#endif
 #include "resample.hh"
 
 #include <assert.h>
@@ -484,7 +490,7 @@ static string
 escape_key_name (const string& name)
 {
   string result;
-  for (unsigned int ch : name)
+  for (unsigned char ch : name)
     {
       if (ch == '"' || ch == '\\')
         {
@@ -508,7 +514,11 @@ int
 gen_key (const string& outfile, const string& key_name)
 {
   string ename = escape_key_name (key_name);
+#ifdef _WIN32
+  int fd = _wopen(utf8_wide(outfile).c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, _S_IREAD | _S_IWRITE);
+#else
   int fd = open (outfile.c_str(), O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+#endif
   if (fd < 0)
     {
       error ("audiowmark: error opening file %s: %s\n", outfile.c_str(), strerror (errno));
@@ -909,7 +919,7 @@ parse_positional (ArgParser& ap, Args ... arg_names)
 }
 
 int
-main (int argc, char **argv)
+cli_main (int argc, char **argv)
 {
   ArgParser ap (argc, argv);
   vector<string> args;
@@ -1076,4 +1086,35 @@ main (int argc, char **argv)
     }
   error ("audiowmark: error parsing commandline args (use audiowmark -h)\n");
   return 1;
+}
+
+int main(int argc, char **argv)
+{
+#ifdef _WIN32
+  _setmode(_fileno(stdin), _O_BINARY);
+  _setmode(_fileno(stdout), _O_BINARY);
+#endif
+  try {
+#ifdef _WIN32
+    int wide_argc = 0;
+    LPWSTR *wide_argv = CommandLineToArgvW(GetCommandLineW(), &wide_argc);
+    if (!wide_argv) throw std::runtime_error("Cannot read Unicode command line");
+    struct FreeArgv { LPWSTR *p; ~FreeArgv() { LocalFree(p); } } owner{wide_argv};
+    std::vector<std::string> args;
+    for (int i = 0; i < wide_argc; ++i) {
+      int n = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[i], -1, nullptr, 0, nullptr, nullptr);
+      if (!n) throw std::runtime_error("Invalid Unicode command line");
+      std::string arg(size_t(n), 0);
+      WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[i], -1, &arg[0], n, nullptr, nullptr);
+      arg.pop_back(); args.push_back(std::move(arg));
+    }
+    std::vector<char *> utf8_argv;
+    for (auto& arg : args) utf8_argv.push_back(const_cast<char *>(arg.c_str()));
+    utf8_argv.push_back(nullptr);
+    return cli_main(wide_argc, utf8_argv.data());
+#else
+    return cli_main(argc, argv);
+#endif
+  }
+  catch (const std::exception& e) { fprintf(stderr, "audiowmark: %s\n", e.what()); return 1; }
 }

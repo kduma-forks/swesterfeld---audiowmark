@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "name": "libgpg-error",
+      "version": "1.50",
+      "url": "https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.50.tar.bz2",
+      "filename": "libgpg-error-1.50.tar.bz2",
+      "sha256": "69405349e0a633e444a28c5b35ce8f14484684518a508dc48a089992fe93e20a"
+    },
+    {
+      "name": "libgcrypt",
+      "version": "1.11.0",
+      "url": "https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.11.0.tar.bz2",
+      "filename": "libgcrypt-1.11.0.tar.bz2",
+      "sha256": "09120c9867ce7f2081d6aaa1775386b98c2f2f246135761aae47d81f58685b9c"
+    },
+    {
+      "name": "fftw",
+      "version": "3.3.10",
+      "url": "https://www.fftw.org/fftw-3.3.10.tar.gz",
+      "filename": "fftw-3.3.10.tar.gz",
+      "sha256": "56c932549852cddcfafdab3820b0200c7742675be92179e59e6215b340e26467"
+    },
+    {
+      "name": "ogg",
+      "version": "1.3.5",
+      "url": "https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.xz",
+      "filename": "libogg-1.3.5.tar.xz",
+      "sha256": "c4d91be36fc8e54deae7575241e03f4211eb102afb3fc0775fbbc1b740016705"
+    },
+    {
+      "name": "vorbis",
+      "version": "1.3.7",
+      "url": "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz",
+      "filename": "libvorbis-1.3.7.tar.xz",
+      "sha256": "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b"
+    },
+    {
+      "name": "flac",
+      "version": "1.4.3",
+      "url": "https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz",
+      "filename": "flac-1.4.3.tar.xz",
+      "sha256": "6c58e69cd22348f441b861092b825e591d0b822e106de6eb0ee4d05d27205b70"
+    },
+    {
+      "name": "opus",
+      "version": "1.5.2",
+      "url": "https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz",
+      "filename": "opus-1.5.2.tar.gz",
+      "sha256": "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
+    },
+    {
+      "name": "mpg123",
+      "version": "1.32.9",
+      "url": "https://www.mpg123.de/download/mpg123-1.32.9.tar.bz2",
+      "filename": "mpg123-1.32.9.tar.bz2",
+      "sha256": "03b61e4004e960bacf2acdada03ed94d376e6aab27a601447bd4908d8407b291"
+    },
+    {
+      "name": "sndfile",
+      "version": "1.2.2",
+      "url": "https://github.com/libsndfile/libsndfile/releases/download/1.2.2/libsndfile-1.2.2.tar.xz",
+      "filename": "libsndfile-1.2.2.tar.xz",
+      "sha256": "3799ca9924d3125038880367bf1468e53a1b7e3686a934f098b7e1d286cdb80e"
+    },
+    {
+      "name": "zita-resampler",
+      "version": "1.11.2",
+      "url": "https://kokkinizita.linuxaudio.org/linuxaudio/downloads/zita-resampler-1.11.2.tar.xz",
+      "filename": "zita-resampler-1.11.2.tar.xz",
+      "sha256": "aa5c54e696069af26f3f1fed4a963113cc1237cddfd57ae5842abcb1acd5492c"
+    }
+  ]
+}

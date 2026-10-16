@@ -295,7 +295,7 @@ tokenize (const string& line, vector<string>& tokens)
 void
 Key::load_key (const string& key_file)
 {
-  FILE *f = fopen (key_file.c_str(), "r");
+  FILE *f = utf8_fopen (key_file, "rb");
   if (!f)
     {
       error ("audiowmark: error opening key file: '%s'\n", key_file.c_str());

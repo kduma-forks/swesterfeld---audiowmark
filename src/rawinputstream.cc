@@ -95,7 +95,7 @@ RawInputStream::open (const string& filename, const RawFormat& format)
     }
   else
     {
-      m_input_file = fopen (filename.c_str(), "r");
+      m_input_file = utf8_fopen (filename, "rb");
       if (!m_input_file)
         return Error (strerror (errno));
 

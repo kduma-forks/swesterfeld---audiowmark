@@ -15,19 +15,20 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifdef __CYGWIN__
-/* needed for vasprintf */
-#define _GNU_SOURCE
-#endif
-
 #include "utils.hh"
+#include <chrono>
+#ifdef _WIN32
+#include <windows.h>
+// wingdi.h defines ERROR, which collides with the engine's Log::ERROR.
+#undef ERROR
+#else
+#include <sys/resource.h>
+#endif
 #include "stdarg.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/time.h>
-#include <sys/resource.h>
 
 using std::vector;
 using std::string;
@@ -36,15 +37,13 @@ double
 get_time()
 {
   /* return timestamp in seconds as double */
-  timeval tv;
-  gettimeofday (&tv, 0);
-
-  return tv.tv_sec + tv.tv_usec / 1000000.0;
+  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 void
 print_memory_usage (const std::string& where)
 {
+#ifndef _WIN32
   printf ("=== memory usage (%s): ===\n", where.c_str());
 
   // Get Peak RSS from getrusage
@@ -78,6 +77,7 @@ print_memory_usage (const std::string& where)
 
   printf (" - Current RSS: %.2f MB\n", (rss * page_size) / (1024.0 * 1024.0));
   printf (" - Virtual Memory: %.2f MB\n", (vm_size * page_size) / (1024.0 * 1024.0));
+#endif
 }
 
 static unsigned char
@@ -166,16 +166,14 @@ vec_to_hex_str (const vector<unsigned char>& vec)
 static string
 string_vprintf (const char *format, va_list vargs)
 {
-  string s;
-
-  char *str = NULL;
-  if (vasprintf (&str, format, vargs) >= 0 && str)
-    {
-      s = str;
-      free (str);
-    }
-  else
-    s = format;
+  va_list copy;
+  va_copy(copy, vargs);
+  int length = vsnprintf(nullptr, 0, format, copy);
+  va_end(copy);
+  if (length < 0) return format;
+  vector<char> buffer(size_t(length) + 1);
+  vsnprintf(buffer.data(), buffer.size(), format, vargs);
+  string s(buffer.data(), size_t(length));
 
   return s;
 }
@@ -251,4 +249,25 @@ debug (const char *format, ...)
   va_start (ap, format);
   logv (Log::DEBUG, format, ap);
   va_end (ap);
+}
+
+#ifdef _WIN32
+std::wstring utf8_wide(const std::string& text)
+{
+  if (text.size() > INT_MAX) throw std::invalid_argument("UTF-8 path too long");
+  int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.c_str(), -1, nullptr, 0);
+  if (!count) throw std::invalid_argument("Invalid UTF-8");
+  std::wstring result(count, 0);
+  MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.c_str(), -1, &result[0], count);
+  result.pop_back();
+  return result;
+}
+#endif
+FILE *utf8_fopen(const std::string& path, const char *mode)
+{
+#ifdef _WIN32
+  return _wfopen(utf8_wide(path).c_str(), utf8_wide(mode).c_str());
+#else
+  return fopen(path.c_str(), mode);
+#endif
 }

@@ -64,7 +64,7 @@ resample (const WavData& wav_data, int rate)
 
   WavData wav_data_out ({}, wav_data.n_channels(), rate, wav_data.bit_depth());
   vector<float>& out_ref = wav_data_out.mutable_samples();
-  out_ref.resize (lrint (in.size() / wav_data.n_channels() * ratio) * wav_data.n_channels());
+  out_ref.resize (llround (in.size() / wav_data.n_channels() * ratio) * wav_data.n_channels());
 
   /* zita-resampler provides two resampling algorithms
    *
@@ -101,12 +101,12 @@ resample_ratio_truncate (const WavData& wav_data, double ratio, int new_rate, do
   const vector<float>& in = wav_data.samples();
   size_t in_size_truncate = in.size();
   if (max_in_seconds > 0)
-    in_size_truncate = min<size_t> (in_size_truncate, wav_data.n_channels() * lrint (wav_data.sample_rate() * max_in_seconds));
+    in_size_truncate = min<size_t> (in_size_truncate, wav_data.n_channels() * llround (wav_data.sample_rate() * max_in_seconds));
 
   WavData wav_data_out ({}, wav_data.n_channels(), new_rate, wav_data.bit_depth());
 
   vector<float>& out_ref = wav_data_out.mutable_samples();
-  out_ref.resize (lrint (in_size_truncate / wav_data.n_channels() * ratio) * wav_data.n_channels());
+  out_ref.resize (llround (in_size_truncate / wav_data.n_channels() * ratio) * wav_data.n_channels());
 
   VResampler vresampler;
   if (vresampler.setup (ratio, wav_data.n_channels(), hlen) != 0)
@@ -181,7 +181,7 @@ public:
         first_write = false;
       }
 
-    uint start = 0;
+    unsigned int start = 0;
     while (start != frames.size() / n_channels)
       {
         const int out_count = Params::frame_size;

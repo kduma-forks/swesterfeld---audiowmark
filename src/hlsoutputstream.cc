@@ -96,15 +96,38 @@ HLSOutputStream::add_stream (const AVCodec **codec, enum AVCodecID codec_id)
   if ((*codec)->type != AVMEDIA_TYPE_AUDIO)
     return Error ("codec type must be audio");
 
-  m_enc->sample_fmt  = (*codec)->sample_fmts ? (*codec)->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
+  const AVSampleFormat *sample_formats = nullptr;
+  const int *sample_rates = nullptr;
+  const AVChannelLayout *channel_layouts = nullptr;
+#if LIBAVCODEC_VERSION_MAJOR >= 62
+  // FFmpeg 8 removed the AVCodec capability lists in favor of this API.
+  const void *configs = nullptr;
+  int ret = avcodec_get_supported_config (m_enc, *codec, AV_CODEC_CONFIG_SAMPLE_FORMAT, 0, &configs, nullptr);
+  if (ret < 0)
+    return Error (string_printf ("could not query codec sample formats: %s", av_err2str (ret)));
+  sample_formats = static_cast<const AVSampleFormat *> (configs);
+  ret = avcodec_get_supported_config (m_enc, *codec, AV_CODEC_CONFIG_SAMPLE_RATE, 0, &configs, nullptr);
+  if (ret < 0)
+    return Error (string_printf ("could not query codec sample rates: %s", av_err2str (ret)));
+  sample_rates = static_cast<const int *> (configs);
+  ret = avcodec_get_supported_config (m_enc, *codec, AV_CODEC_CONFIG_CHANNEL_LAYOUT, 0, &configs, nullptr);
+  if (ret < 0)
+    return Error (string_printf ("could not query codec channel layouts: %s", av_err2str (ret)));
+  channel_layouts = static_cast<const AVChannelLayout *> (configs);
+#else
+  sample_formats = (*codec)->sample_fmts;
+  sample_rates = (*codec)->supported_samplerates;
+  channel_layouts = (*codec)->ch_layouts;
+#endif
+  m_enc->sample_fmt  = sample_formats ? sample_formats[0] : AV_SAMPLE_FMT_FLTP;
   m_enc->bit_rate    = m_bit_rate;
   m_enc->sample_rate = m_sample_rate;
-  if ((*codec)->supported_samplerates)
+  if (sample_rates)
     {
       bool match = false;
-      for (int i = 0; (*codec)->supported_samplerates[i]; i++)
+      for (int i = 0; sample_rates[i]; i++)
         {
-          if ((*codec)->supported_samplerates[i] == m_sample_rate)
+          if (sample_rates[i] == m_sample_rate)
             {
               m_enc->sample_rate = m_sample_rate;
               match = true;
@@ -120,15 +143,15 @@ HLSOutputStream::add_stream (const AVCodec **codec, enum AVCodecID codec_id)
     return Error (string_printf ("bad channel layout '%s'", m_channel_layout.c_str()));
   av_channel_layout_uninit (&m_enc->ch_layout);
   av_channel_layout_copy (&m_enc->ch_layout, &channel_layout);
-  if ((*codec)->ch_layouts)
+  if (channel_layouts)
     {
       av_channel_layout_uninit (&m_enc->ch_layout);
-      av_channel_layout_copy (&m_enc->ch_layout, &(*codec)->ch_layouts[0]);
-      for (int i = 0; (*codec)->ch_layouts[i].nb_channels; i++)
+      av_channel_layout_copy (&m_enc->ch_layout, &channel_layouts[0]);
+      for (int i = 0; channel_layouts[i].nb_channels; i++)
         {
-          if (av_channel_layout_compare (&(*codec)->ch_layouts[i], &channel_layout) == 0) {
+          if (av_channel_layout_compare (&channel_layouts[i], &channel_layout) == 0) {
             av_channel_layout_uninit (&m_enc->ch_layout);
-            av_channel_layout_copy (&m_enc->ch_layout, &(*codec)->ch_layouts[i]);
+            av_channel_layout_copy (&m_enc->ch_layout, &channel_layouts[i]);
           }
         }
     }

@@ -34,7 +34,11 @@ Error
 SFOutputStream::open (const string& filename, int n_channels, int sample_rate, int bit_depth, Encoding encoding, OutFormat out_format)
 {
   return open ([&] (SF_INFO *sfinfo) {
+    #ifdef _WIN32
+    return sf_wchar_open(utf8_wide(filename).c_str(), SFM_WRITE, sfinfo);
+#else
     return sf_open (filename.c_str(), SFM_WRITE, sfinfo);
+#endif
   }, n_channels, sample_rate, bit_depth, encoding, out_format);
 }
 
@@ -123,10 +127,11 @@ SFOutputStream::close()
   if (m_state == State::OPEN)
     {
       assert (m_sndfile);
-      if (sf_close (m_sndfile))
-        return Error ("sf_close returned an error");
-
+      int status;
+      status = sf_close(m_sndfile);
+      m_sndfile = nullptr;
       m_state = State::CLOSED;
+      if (status) return Error("sf_close returned an error");
     }
   return Error::Code::NONE;
 }

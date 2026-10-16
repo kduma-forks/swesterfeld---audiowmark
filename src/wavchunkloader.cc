@@ -72,7 +72,7 @@ WavChunkLoader::open()
     m_resampler.reset (ResamplerImpl::create (m_in_stream->n_channels(), m_in_stream->sample_rate(), m_wav_data.sample_rate()));
 
   /* maximum length of the m_wav_data samples (chunk size) */
-  m_wav_data_max_size = lrint (Params::get_chunk_size * 60 * m_wav_data.sample_rate()) * m_wav_data.n_channels();
+  m_wav_data_max_size = llround (Params::get_chunk_size * 60 * m_wav_data.sample_rate()) * m_wav_data.n_channels();
 
   /* overlap size:
    *  - should be large enough for BlockDecoder overlap (1 AB block == 2 blocks)
@@ -81,7 +81,7 @@ WavChunkLoader::open()
   const int overlap_blocks = 2;
   const double speed_factor = 1.3;
   const double block_seconds = (mark_sync_frame_count() + mark_data_frame_count()) * Params::frame_size / double (Params::mark_sample_rate);
-  m_n_overlap_samples = lrint (overlap_blocks * block_seconds * speed_factor * m_wav_data.sample_rate()) * m_wav_data.n_channels();
+  m_n_overlap_samples = llround (overlap_blocks * block_seconds * speed_factor * m_wav_data.sample_rate()) * m_wav_data.n_channels();
 
   if (m_in_stream->n_frames() != AudioInputStream::N_FRAMES_UNKNOWN)
     {

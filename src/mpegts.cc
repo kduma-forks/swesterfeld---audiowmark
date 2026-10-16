@@ -118,7 +118,7 @@ Error
 TSWriter::append_file (const string& name, const string& filename)
 {
   vector<unsigned char> data;
-  FILE *datafile = fopen (filename.c_str(), "r");
+  FILE *datafile = utf8_fopen (filename, "rb");
   ScopedFile datafile_s (datafile);
   if (!datafile)
     return Error ("unable to open data file");
@@ -156,8 +156,8 @@ TSWriter::append_data (const string& name, const vector<unsigned char>& data)
 Error
 TSWriter::process (const string& inname, const string& outname)
 {
-  FILE *infile = fopen (inname.c_str(), "r");
-  FILE *outfile = fopen (outname.c_str(), "w");
+  FILE *infile = utf8_fopen (inname, "rb");
+  FILE *outfile = utf8_fopen (outname, "wb");
   ScopedFile infile_s (infile);
   ScopedFile outfile_s (outfile);
 
@@ -262,7 +262,7 @@ TSReader::load (const string& inname)
     }
   else
     {
-      FILE *infile = fopen (inname.c_str(), "r");
+      FILE *infile = utf8_fopen (inname, "rb");
       ScopedFile infile_s (infile);
       if (!infile)
         return Error (string_printf ("error opening input .ts '%s'", inname.c_str()));

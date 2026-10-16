@@ -41,7 +41,11 @@ SFInputStream::open (const string& filename)
       }
     else
       {
+        #ifdef _WIN32
+        return sf_wchar_open(utf8_wide(filename).c_str(), SFM_READ, sfinfo);
+#else
         return sf_open (filename.c_str(), SFM_READ, sfinfo);
+#endif
       }
   });
 }
@@ -62,8 +66,8 @@ SFInputStream::open (std::function<SNDFILE* (SF_INFO *)> open_func)
       Error err (sf_strerror (m_sndfile));
       if (m_sndfile)
         {
+          sf_close(m_sndfile);
           m_sndfile = nullptr;
-          sf_close (m_sndfile);
         }
       return err;
     }

@@ -19,6 +19,7 @@
 
 #include <mpg123.h>
 #include <assert.h>
+#include <mutex>
 #ifdef _WIN32
 #include <io.h>
 #include <fcntl.h>
@@ -30,17 +31,10 @@ using std::string;
 static void
 mp3_init()
 {
-  static bool mpg123_init_ok = false;
-  if (!mpg123_init_ok)
-    {
-      int err = mpg123_init();
-      if (err != MPG123_OK)
-        {
-          error ("audiowmark: init mpg123 lib failed\n");
-          exit (1);
-        }
-      mpg123_init_ok = true;
-    }
+  static std::once_flag once;
+  std::call_once(once, [] {
+    if (mpg123_init() != MPG123_OK) throw std::runtime_error("mpg123 initialization failed");
+  });
 }
 
 MP3InputStream::~MP3InputStream()

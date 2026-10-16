@@ -255,8 +255,8 @@ hls_add (const Key& key, const string& infile, const string& outfile, const stri
   if (missing_vars)
     return 1;
 
-  if (Params::hls_bit_rate)  // command line option overrides vars bit-rate
-    bit_rate = Params::hls_bit_rate;
+  if (params().hls_bit_rate)  // command line option overrides vars bit-rate
+    bit_rate = params().hls_bit_rate;
 
   HLSOutputStream out_stream (in_stream.n_channels(), in_stream.sample_rate(), in_stream.bit_depth());
 
@@ -511,7 +511,7 @@ hls_prepare (const string& in_dir, const string& out_dir, const string& filename
 
   /* find bitrate for AAC encoder */
   int bit_rate = 0;
-  if (!Params::hls_bit_rate)
+  if (!params().hls_bit_rate)
     {
       err = bit_rate_from_m3u8 (in_dir + "/" + filename, audio_master_data, bit_rate);
       if (err)
@@ -523,7 +523,7 @@ hls_prepare (const string& in_dir, const string& out_dir, const string& filename
     }
   else
     {
-      bit_rate = Params::hls_bit_rate;
+      bit_rate = params().hls_bit_rate;
       info ("AAC Bitrate:  %d\n", bit_rate);
     }
 

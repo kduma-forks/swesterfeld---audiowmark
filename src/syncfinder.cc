@@ -87,7 +87,7 @@ SyncFinder::normalize_sync_quality (double raw_quality)
    * block or not - typical output is 1.0 or more for sync blocks and close
    * to 0.0 for non-sync blocks
    */
-  return raw_quality / min (Params::water_delta, 0.080) / 2.9;
+  return raw_quality / min (params().water_delta, 0.080) / 2.9;
 }
 
 /* safe to call from any thread */
@@ -171,11 +171,11 @@ SyncFinder::scan_silence (const WavData& wav_data)
 void
 SyncFinder::search_approx (vector<SearchKeyResult>& key_results, const vector<vector<vector<FrameBit>>>& sync_bits, const WavData& wav_data, Mode mode)
 {
-  ThreadPool    thread_pool;
   vector<float> fft_db;
   vector<char>  have_frames;
 
   std::mutex result_mutex;
+  ThreadPool thread_pool; // destroyed before captured state
   // compute multiple time-shifted fft vectors
   size_t n_bands = Params::max_band - Params::min_band + 1;
   int total_frame_count = mark_sync_frame_count() + mark_data_frame_count();
@@ -334,7 +334,7 @@ SyncFinder::sync_mask_avg_false_positives (vector<SearchScore>& sync_scores)
 void
 SyncFinder::sync_select_by_threshold (vector<SearchScore>& sync_scores)
 {
-  const double sync_threshold1 = Params::sync_threshold2 * 0.75;
+  const double sync_threshold1 = params().sync_threshold2 * 0.75;
 
   vector<SearchScore> selected_scores;
 
@@ -370,15 +370,15 @@ SyncFinder::sync_select_threshold_and_n_best (vector<SearchScore>& scores, doubl
   int i = 0;
   while (i < int (scores.size()) && scores[i].abs_quality() > threshold)
     i++;
-  if (i >= Params::get_n_best)
+  if (i >= params().get_n_best)
     {
       /* have more than n_best matches with (quality > threshold), keep all of them */
       scores.resize (i);
     }
-  else if (int (scores.size()) > Params::get_n_best)
+  else if (int (scores.size()) > params().get_n_best)
     {
       /* if we have less than n_best matches with (quality > threshold), keep n_best matches */
-      scores.resize (Params::get_n_best);
+      scores.resize (params().get_n_best);
     }
 }
 
@@ -393,7 +393,6 @@ SyncFinder::sync_select_truncate_n (vector<SearchScore>& sync_scores, size_t n)
 void
 SyncFinder::search_refine (const WavData& wav_data, Mode mode, SearchKeyResult& key_result, const vector<vector<FrameBit>>& sync_bits)
 {
-  ThreadPool          thread_pool;
   std::mutex          result_mutex;
   vector<SearchScore> result_scores;
   BitPosGen           bit_pos_gen (key_result.key);
@@ -411,6 +410,7 @@ SyncFinder::search_refine (const WavData& wav_data, Mode mode, SearchKeyResult& 
         want_frames[first_block_end + bit_pos_gen.sync_frame (f)] = 1;
     }
 
+  ThreadPool thread_pool; // destroyed before captured state
   for (const auto& score : key_result.scores)
     {
       thread_pool.add_job ([this, score, total_frame_count,
@@ -487,7 +487,7 @@ SyncFinder::fake_sync (const vector<Key>& key_list, const WavData& wav_data, Mod
 vector<SyncFinder::KeyResult>
 SyncFinder::search (const vector<Key>& key_list, const WavData& wav_data, Mode mode)
 {
-  if (Params::test_no_sync)
+  if (params().test_no_sync)
     return fake_sync (key_list, wav_data, mode);
 
   if (mode == Mode::CLIP)
@@ -523,19 +523,19 @@ SyncFinder::search (const vector<Key>& key_list, const WavData& wav_data, Mode m
       sync_mask_avg_false_positives (search_scores);
 
       /* select: threshold1 & at least n_best */
-      sync_select_threshold_and_n_best (search_scores, Params::sync_threshold2 * 0.75);
+      sync_select_threshold_and_n_best (search_scores, params().sync_threshold2 * 0.75);
 
       if (mode == Mode::CLIP)
         {
           /* ClipDecoder: enforce a maximum number of matches: at most n_best but at least 5 */
-          size_t n_max = std::max (Params::get_n_best, 5);
+          size_t n_max = std::max (params().get_n_best, 5);
           sync_select_truncate_n (search_scores, n_max);
         }
 
       search_refine (wav_data, mode, search_key_results[k], sync_bits[k]);
 
       /* select: threshold2 & at least n_best */
-      sync_select_threshold_and_n_best (search_scores, Params::sync_threshold2);
+      sync_select_threshold_and_n_best (search_scores, params().sync_threshold2);
 
       sort (search_scores.begin(), search_scores.end(), [] (const SearchScore& a, const SearchScore &b) { return a.index < b.index; });
 
@@ -623,6 +623,7 @@ SyncFinder::sync_fft_parallel (ThreadPool& thread_pool,
     vector<float> fft_db;
   };
   vector<PartialFFTResult> partial_fft_results;
+  PoolDrain drain(thread_pool);
   const int frames_per_job = 256;
   for (int start_frame = 0; start_frame < frame_count (wav_data); start_frame += frames_per_job)
     {

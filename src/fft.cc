@@ -21,6 +21,8 @@
 
 #include <map>
 #include <mutex>
+#include <stdexcept>
+#include <new>
 
 using std::vector;
 using std::complex;
@@ -57,6 +59,11 @@ FFTProcessor::FFTProcessor (size_t N)
   m_in  = static_cast<float *> (fftwf_malloc (sizeof (float) * N_2));
   m_out = static_cast<float *> (fftwf_malloc (sizeof (float) * N_2));
 
+  if (!m_in || !m_out) {
+    fftwf_free(m_in); fftwf_free(m_out);
+    throw std::bad_alloc();
+  }
+  try {
   /* plan if not done already */
   fftwf_plan& pfft = fft_plan_map.fft_plan[N];
   if (!pfft)
@@ -70,6 +77,11 @@ FFTProcessor::FFTProcessor (size_t N)
   plan_fft = pfft;
   plan_ifft = pifft;
 
+  if (!plan_fft || !plan_ifft) throw std::runtime_error("FFTW plan creation failed");
+  } catch (...) {
+    fftwf_free(m_in); fftwf_free(m_out);
+    throw;
+  }
   // we could add code for saving plans here, and use patient planning
 }
 

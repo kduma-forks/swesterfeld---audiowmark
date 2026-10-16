@@ -20,6 +20,8 @@
 
 #include <vector>
 #include <string>
+#include <stdexcept>
+#include <cstdio>
 
 #ifndef __STDC_FORMAT_MACROS
 // some compilers/platforms (i.e. very old macOS) need this for macros like PRId64 (#61)
@@ -143,5 +145,10 @@ public:
       fclose (m_file);
   }
 };
+
+FILE *utf8_fopen(const std::string& path, const char *mode);
+#ifdef _WIN32
+std::wstring utf8_wide(const std::string& text);
+#endif
 
 #endif /* AUDIOWMARK_UTILS_HH */

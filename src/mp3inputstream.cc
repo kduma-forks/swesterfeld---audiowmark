@@ -19,6 +19,10 @@
 
 #include <mpg123.h>
 #include <assert.h>
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#endif
 
 using std::min;
 using std::string;
@@ -80,7 +84,13 @@ MP3InputStream::open (const string& filename)
       }
   }
 
+#ifdef _WIN32
+  m_fd = _wopen(utf8_wide(filename).c_str(), _O_RDONLY | _O_BINARY);
+  if (m_fd < 0) return Error("Cannot open MP3 file");
+  err = mpg123_open_fd(m_handle, m_fd);
+#else
   err = mpg123_open (m_handle, filename.c_str());
+#endif
   if (err != MPG123_OK)
     return Error (mpg123_strerror (m_handle));
 
@@ -108,6 +118,7 @@ MP3InputStream::open (const string& filename)
   m_sample_rate = rate;
   m_frames_left = m_n_values / m_n_channels;
 
+  m_state = State::OPEN;
   return Error::Code::NONE;
 }
 
@@ -161,8 +172,7 @@ MP3InputStream::read_frames (std::vector<float>& samples, size_t count)
 void
 MP3InputStream::close()
 {
-  if (m_state == State::OPEN)
-    {
+  {
       if (m_handle && m_need_close)
         mpg123_close (m_handle);
 
@@ -171,6 +181,9 @@ MP3InputStream::close()
           mpg123_delete (m_handle);
           m_handle = nullptr;
         }
+#ifdef _WIN32
+      if (m_fd >= 0) { _close(m_fd); m_fd = -1; }
+#endif
       m_state = State::CLOSED;
     }
 }
@@ -217,6 +230,9 @@ MP3InputStream::detect (const string& filename)
   {
     mpg123_handle *mh         = nullptr;
     bool           need_close = false;
+#ifdef _WIN32
+    int fd = -1;
+#endif
 
     ~ScopedMHandle()
     {
@@ -225,6 +241,9 @@ MP3InputStream::detect (const string& filename)
 
       if (mh)
         mpg123_delete (mh);
+#ifdef _WIN32
+      if (fd >= 0) _close(fd);
+#endif
     }
   };
 
@@ -242,7 +261,13 @@ MP3InputStream::detect (const string& filename)
   if (err != MPG123_OK)
     return false;
 
+#ifdef _WIN32
+  smh.fd = _wopen(utf8_wide(filename).c_str(), _O_RDONLY | _O_BINARY);
+  if (smh.fd < 0) return false;
+  err = mpg123_open_fd(mh, smh.fd);
+#else
   err = mpg123_open (mh, filename.c_str());
+#endif
   if (err != MPG123_OK)
     return false;
 
@@ -256,12 +281,12 @@ MP3InputStream::detect (const string& filename)
     return false;
 
   size_t buffer_bytes = mpg123_outblock (mh);
-  unsigned char buffer[buffer_bytes];
+  std::vector<unsigned char> buffer(buffer_bytes);
 
   for (size_t i = 0; i < 30; i++)
     {
       size_t done;
-      err = mpg123_read (mh, buffer, buffer_bytes, &done);
+      err = mpg123_read (mh, buffer.data(), buffer_bytes, &done);
       if (err == MPG123_DONE)
         {
           return true;

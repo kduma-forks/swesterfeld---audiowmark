@@ -19,7 +19,9 @@
 #include <regex>
 
 #include <sys/types.h>
+#if !defined(_WIN32)
 #include <sys/wait.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 

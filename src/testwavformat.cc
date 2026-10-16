@@ -22,6 +22,10 @@
 #include <assert.h>
 #include <math.h>
 #include <cstring>
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#endif
 
 #include "sfinputstream.hh"
 #include "stdoutwavoutputstream.hh"
@@ -33,6 +37,9 @@ using std::vector;
 int
 main (int argc, char **argv)
 {
+#ifdef _WIN32
+  _setmode (_fileno (stdout), _O_BINARY);
+#endif
   std::map<std::string, int> formats
     {
       { "pcm_8",  SF_FORMAT_PCM_U8 },
@@ -53,6 +60,7 @@ main (int argc, char **argv)
       SF_INFO sfinfo = { 0, };
       auto sndfile = sf_open (argv[2], SFM_READ, &sfinfo);
       assert (sndfile);
+      sf_close (sndfile);
 
       for (auto fi : formats)
         {

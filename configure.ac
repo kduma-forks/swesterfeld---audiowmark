@@ -4,8 +4,16 @@ AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([config.h])
 AM_INIT_AUTOMAKE([foreign])
+AC_PROG_CC
 AC_PROG_CXX
+AM_PROG_AR
+AC_CANONICAL_HOST
+AC_ARG_ENABLE([static-deps], [AS_HELP_STRING([--enable-static-deps], [request static dependency link flags from pkg-config])], [], [enable_static_deps=no])
 LT_INIT
+AM_CONDITIONAL([COND_WINDOWS], [test "x$host_os" != "x${host_os#mingw}"])
+AC_ARG_ENABLE([videowmark], [AS_HELP_STRING([--disable-videowmark], [do not install the videowmark script])], [], [enable_videowmark=yes])
+AM_CONDITIONAL([COND_VIDEOWMARK], [test "x$enable_videowmark" = xyes])
+AC_ARG_VAR([AUDIOWMARK_CLI_LDFLAGS], [extra flags for standalone CLI only (for example -all-static)])
 
 AC_C_BIGENDIAN()
 
@@ -90,6 +98,8 @@ AC_DEFUN([AC_LIBGCRYPT_REQUIREMENTS],
     fi
 ])
 
+PKG_PROG_PKG_CONFIG
+AS_IF([test "x$enable_static_deps" = xyes], [PKG_CONFIG="$PKG_CONFIG --static"])
 AC_SNDFILE_REQUIREMENTS
 AC_LIBMPG123_REQUIREMENTS
 AC_ZITA_REQUIREMENTS

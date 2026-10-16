@@ -53,7 +53,7 @@ RawOutputStream::open (const string& filename, const RawFormat& format)
     }
   else
     {
-      m_output_file = fopen (filename.c_str(), "w");
+      m_output_file = utf8_fopen (filename, "wb");
       if (!m_output_file)
         return Error (strerror (errno));
 

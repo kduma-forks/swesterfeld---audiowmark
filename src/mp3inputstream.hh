@@ -30,7 +30,10 @@ class MP3InputStream : public AudioInputStream
     OPEN,
     CLOSED
   };
-  int         m_n_values = 0;
+  size_t      m_n_values = 0;
+#ifdef _WIN32
+  int m_fd = -1;
+#endif
   int         m_n_channels = 0;
   int         m_sample_rate = 0;
   size_t      m_frames_left = 0;

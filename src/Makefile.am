@@ -1,5 +1,7 @@
 bin_PROGRAMS = audiowmark
+if COND_VIDEOWMARK
 dist_bin_SCRIPTS = videowmark
+endif
 
 COMMON_SRC = utils.hh utils.cc convcode.hh convcode.cc random.hh random.cc wavdata.cc wavdata.hh \
 	     audiostream.cc audiostream.hh sfinputstream.cc sfinputstream.hh stdoutwavoutputstream.cc stdoutwavoutputstream.hh \
@@ -13,7 +15,10 @@ COMMON_LIBS = $(SNDFILE_LIBS) $(FFTW_LIBS) $(LIBGCRYPT_LIBS) $(LIBMPG123_LIBS) $
 AM_CXXFLAGS = $(SNDFILE_CFLAGS) $(FFTW_CFLAGS) $(LIBGCRYPT_CFLAGS) $(LIBMPG123_CFLAGS) $(FFMPEG_CFLAGS)
 
 audiowmark_SOURCES = audiowmark.cc $(COMMON_SRC)
-audiowmark_LDFLAGS = $(COMMON_LIBS)
+audiowmark_LDFLAGS = $(COMMON_LIBS) $(AUDIOWMARK_CLI_LDFLAGS)
+if COND_WINDOWS
+audiowmark_LDFLAGS += -lshell32
+endif
 
 noinst_PROGRAMS = testconvcode testrandom testmp3 teststream testlimiter testshortcode testmpegts testthreadpool \
 		  testrawconverter testwavformat

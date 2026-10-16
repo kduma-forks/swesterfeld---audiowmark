@@ -17,6 +17,8 @@
 #else
 #include <windows.h>
 #include <aclapi.h>
+#include <fcntl.h>
+#include <io.h>
 #endif
 
 using std::string;
@@ -123,6 +125,12 @@ main (int argc, char **argv)
   if (argc > 1 && strcmp (argv[1], "child") == 0)
     {
       require (argc == 6, "child received the wrong number of arguments");
+#ifdef _WIN32
+      /* This fixture intentionally emits one CRLF line and one LF line. Avoid the
+       * Windows CRT translating both '\n' bytes so Process::run sees those exact bytes.
+       */
+      require (_setmode (_fileno (stdout), _O_BINARY) != -1, "cannot set child stdout to binary mode");
+#endif
       printf ("first\r\nsecond\n");
       printf ("%s|%s|%s", argv[2], argv[3], argv[4]);
       return atoi (argv[5]);

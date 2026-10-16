@@ -17,6 +17,8 @@ AS_CASE([$host_os], [mingw*], [
 LT_INIT
 AM_CONDITIONAL([COND_ELF], [test "x$host_os" != "x${host_os#linux}"])
 AM_CONDITIONAL([COND_WINDOWS], [test "x$host_os" != "x${host_os#mingw}"])
+AM_CONDITIONAL([COND_WINDOWS_STATIC_SDK],
+  [test "x$host_os" != "x${host_os#mingw}" && test "x$enable_shared" = xno])
 AC_ARG_ENABLE([videowmark], [AS_HELP_STRING([--disable-videowmark], [do not build or install videowmark])], [], [enable_videowmark=yes])
 AM_CONDITIONAL([COND_VIDEOWMARK], [test "x$enable_videowmark" = xyes])
 AC_ARG_ENABLE([bundled-tools], [AS_HELP_STRING([--enable-bundled-tools], [require helper programs beside the executable, without PATH fallback])], [], [enable_bundled_tools=no])

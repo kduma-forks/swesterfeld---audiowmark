@@ -20,11 +20,8 @@ NPROC=`sysctl -n hw.ncpu`
 make -j $NPROC
 make  -j $NPROC check
 
-# test build audiowmark with ffmpeg support
+# test build audiowmark with ffmpeg support (HLS, videowmark); the tests run with ffmpeg from PATH
 make clean
 ./autogen.sh --with-ffmpeg
 make -j $NPROC
-
-### unfortunately HLS is currently broken on macOS, so although it builds, make check will fail
-###
-###make -j $NPROC check
+make -j $NPROC check

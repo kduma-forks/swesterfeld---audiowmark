@@ -10,4 +10,4 @@ docker run --rm --network host -v "$ROOT:/work" -w /work -e TARGET -e VERSION -e
  git config --global --add safe.directory /work
  bash scripts/release/build.sh
  python3 scripts/release/unpack.py --artifacts dist --cli .release/unpacked-cli
- python3 scripts/release/smoke.py --cli ".release/unpacked-cli/$TARGET/bin/audiowmark"'
+ python3 scripts/release/smoke.py --cli ".release/unpacked-cli/$TARGET/bin/audiowmark" --fixtures tests/data'

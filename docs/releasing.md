@@ -1,10 +1,10 @@
 # Portable CLI releases
 
 The `Portable release packages` workflow builds five standalone CLI archives,
-corresponding sources, licenses, and `SHA256SUMS`. It runs on pull requests,
-manual dispatches, and `release: published` (including prereleases). Pull
-request and manual builds only upload workflow artifacts. They never modify
-a Release or publish to a package registry.
+corresponding sources, licenses, and `SHA256SUMS` (seven archives total). It
+runs on pull requests, manual dispatches, and `release: published` (including
+prereleases). Pull request and manual builds only upload workflow artifacts.
+They never modify a Release or publish to a package registry.
 
 | Target suffix | CLI | Runtime requirement |
 | --- | --- | --- |
@@ -62,14 +62,32 @@ README, licenses, build scripts and `metadata.json`. The CLI has no runtime
 dependency on separately distributed audiowmark libraries.
 
 Each native build runs the complete `make check` CLI regression suite, audits
-OS imports, architecture and deployment versions, and then tests the actual
-extracted package from an unrelated directory. The package smoke test checks
-version metadata, Unicode paths and keys, watermark add/detect with the exact
-expected payload, audio layout, and binary stdin/stdout. Linux packages are
-also exercised in clean Alpine and Ubuntu containers without audio libraries
-or access to the builder dependency prefix. Dependency prefix caches are
-separated by target, compiler/image identity, source lock, recipe and patch
-hashes.
+native binary OS imports, architecture, and runtime/deployment versions, and
+checks WAV audio layout. The WAV test is a single `add`/`get` round trip; the
+unconditional RAW round trip uses two `add` calls with two keys and two
+payloads. The format tests
+use the real prerecorded synthetic `marked.flac`, `marked.mp3`, `marked.ogg`
+(Vorbis), and `marked.opus` fixtures for decoding; they need neither FFmpeg
+nor Python.
+
+The package smoke test extracts the package and executes its CLI from an
+unrelated temporary working directory. It checks version metadata, Unicode
+paths and key names, direct `get`, and both JSON output modes by fully parsing
+the results and checking the exact payload and key. It also checks binary
+stdin/stdout. The fixture directory is required and must come from the
+checkout's `tests/data` directory; for example:
+
+```sh
+python3 scripts/release/smoke.py \
+  --cli .release/unpacked-cli/$TARGET/bin/audiowmark \
+  --fixtures tests/data
+```
+
+Linux packages are also exercised in clean Alpine and Ubuntu containers without
+audio libraries. Those containers mount only the extracted CLI, the smoke
+script, and `tests/data` (as `/fixtures`); they have no access to the repository
+or builder dependency prefix. Dependency prefix caches are separated by target,
+compiler/image identity, source lock, recipe and patch hashes.
 
 Check downloaded assets before use:
 
@@ -95,6 +113,9 @@ export TARGET=linux-musl-x86_64 VERSION=1.2.3
 scripts/release/container-build.sh
 scripts/release/container-smoke.sh
 ```
+
+The Linux smoke commands above use `tests/data` from the checkout; clean
+container smoke receives the same directory as `/fixtures`.
 
 On macOS or in the MINGW64 shell on Windows:
 

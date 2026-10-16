@@ -339,13 +339,13 @@ public:
   void
   print_json (size_t time_length, const std::string &json_file)
   {
-    FILE *outfile = fopen (json_file == "-" ? "/dev/stdout" : json_file.c_str(), "w");
+    FILE *outfile = json_file == "-" ? stdout : utf8_fopen (json_file, "wb");
     if (!outfile)
       {
         perror (("audiowmark: failed to open \"" + json_file + "\":").c_str());
         exit (127);
       }
-    fprintf (outfile, "{ \"length\": \"%ld:%02ld\",\n", time_length / 60, time_length % 60);
+    fprintf (outfile, "{ \"length\": \"%zu:%02zu\",\n", time_length / 60, time_length % 60);
     fprintf (outfile, "  \"matches\": [\n");
     int nth = 0;
     for (const auto& pattern : patterns)
@@ -378,7 +378,10 @@ public:
                  pattern.speed);
       }
     fprintf (outfile, " ]\n}\n");
-    fclose (outfile);
+    if (outfile == stdout)
+      fflush (outfile);
+    else
+      fclose (outfile);
   }
   void
   print()

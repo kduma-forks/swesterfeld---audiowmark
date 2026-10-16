@@ -56,11 +56,15 @@ const char *const HELP_TEXT =
   "  * retrieve message\n"
   "    videowmark get <watermarked_video>\n"
   "\n"
+  "  * inspect the audio codec and bitrate\n"
+  "    videowmark probe <input_video>\n"
+  "\n"
   "Global options:\n"
   "  --strength <s>        set watermark strength\n"
   "  --key <file>          load watermarking key from file\n"
   "  -q, --quiet           disable information messages\n"
-  "  -v, --verbose         enable ffmpeg verbose output\n";
+  "  -v, --verbose         enable ffmpeg verbose output\n"
+  "  -h, --help            show this help\n";
 
 struct Options
 {

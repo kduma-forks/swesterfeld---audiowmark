@@ -789,7 +789,7 @@ installed.
 For the portable Windows 7 SP1 x64 package and MINGW64/MSVCRT source recipe,
 see link:docs/releasing.md[release builds]. Cygwin is an alternative source
 build environment, including for `videowmark`. Andreas Strohmeier provided
-https://raw.githubusercontent.com/swesterfeld/audiowmark/master/docs/win-x64-build-guide.txt[*build instructions for Cygwin*].
+link:docs/win-x64-build-guide.txt[*historical build instructions for Cygwin (audiowmark 0.6.2)*]; they are outdated and kept for reference.
 
 == Dependencies
 

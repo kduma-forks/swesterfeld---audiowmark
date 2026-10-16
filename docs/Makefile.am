@@ -21,7 +21,7 @@ DOC_META = --metadata title="audiowmark $(DOC_VERSION)" \
 
 # Literal names: make dist copies these relative to the source directory.
 EXTRA_DIST = audiowmark.md graphviz.py example-spectrum.dat example-spectrum.gp \
-	     videowmark-win.cc win-x64-build-guide.txt
+	     win-x64-build-guide.txt
 
 # PDF and HTML may build in parallel (make -j): both read the same shared inputs and
 # the graphviz-images/ directory is created once by a stamp rule. Diagram file names

@@ -1,0 +1,24 @@
+--- a/src/spawn-posix.c
++++ b/src/spawn-posix.c
+@@ -37,6 +37,9 @@
+ #endif
+ #include <unistd.h>
+ #include <fcntl.h>
++#ifdef __APPLE__
++# include <crt_externs.h>
++#endif
+ 
+ #include <sys/socket.h>
+ #include <sys/wait.h>
+@@ -342,7 +345,11 @@
+   _gpgrt_close_all_fds (3, act->except_fds);
+ 
+   if (act->environ)
++#ifdef __APPLE__
++    *_NSGetEnviron () = act->environ;
++#else
+     environ = act->environ;
++#endif
+ 
+   if (act->atfork)
+     act->atfork (act->atfork_arg);

@@ -1,0 +1,15 @@
+--- a/src/file_io.c
++++ b/src/file_io.c
+@@ -996,7 +996,11 @@
+ 		count = (items > SENSIBLE_SIZE) ? SENSIBLE_SIZE : (ssize_t) items ;
+ 
+ 		if (ReadFile (psf->file.handle, ((char*) ptr) + total, count, &dwNumberOfBytesRead, 0) == 0)
+-		{	psf_log_syserr (psf, GetLastError ()) ;
++		{	DWORD error = GetLastError () ;
++			/* A closed Windows pipe reports EOF as ERROR_BROKEN_PIPE. */
++			if (psf->is_pipe && error == ERROR_BROKEN_PIPE)
++				break ;
++			psf_log_syserr (psf, error) ;
+ 			break ;
+ 			}
+ 		else

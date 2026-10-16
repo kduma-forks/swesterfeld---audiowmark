@@ -4,7 +4,7 @@ RUN pacman -Syu --noconfirm
 RUN pacman -S --noconfirm \
     gcc clang make automake autoconf libtool pkg-config \
     libsndfile mpg123 zita-resampler fftw autoconf-archive \
-    ffmpeg
+    ffmpeg python
 
 ADD . /audiowmark
 WORKDIR /audiowmark

@@ -1,6 +1,6 @@
 bin_PROGRAMS = audiowmark
 if COND_VIDEOWMARK
-dist_bin_SCRIPTS = videowmark
+bin_PROGRAMS += videowmark
 endif
 
 COMMON_SRC = utils.hh utils.cc convcode.hh convcode.cc random.hh random.cc wavdata.cc wavdata.hh \
@@ -9,8 +9,13 @@ COMMON_SRC = utils.hh utils.cc convcode.hh convcode.cc random.hh random.cc wavda
 	     rawconverter.cc rawconverter.hh mp3inputstream.cc mp3inputstream.hh wmcommon.cc wmcommon.hh fft.cc fft.hh \
 	     limiter.cc limiter.hh shortcode.cc shortcode.hh mpegts.cc mpegts.hh hls.cc hls.hh audiobuffer.hh \
 	     wmget.cc wmadd.cc syncfinder.cc syncfinder.hh wmspeed.cc wmspeed.hh threadpool.cc threadpool.hh \
-	     resample.cc resample.hh wavpipeinputstream.cc wavpipeinputstream.hh wavchunkloader.cc wavchunkloader.hh
+	     resample.cc resample.hh wavpipeinputstream.cc wavpipeinputstream.hh wavchunkloader.cc wavchunkloader.hh \
+	     process.cc process.hh
 COMMON_LIBS = $(SNDFILE_LIBS) $(FFTW_LIBS) $(LIBGCRYPT_LIBS) $(LIBMPG123_LIBS) $(FFMPEG_LIBS) $(LTLIBZITA_RESAMPLER)
+if COND_WINDOWS
+# process.cc: security descriptors for private temporary directories
+COMMON_LIBS += -ladvapi32
+endif
 
 AM_CXXFLAGS = $(SNDFILE_CFLAGS) $(FFTW_CFLAGS) $(LIBGCRYPT_CFLAGS) $(LIBMPG123_CFLAGS) $(FFMPEG_CFLAGS)
 
@@ -20,8 +25,20 @@ if COND_WINDOWS
 audiowmark_LDFLAGS += -lshell32
 endif
 
+# videowmark only drives ffprobe, ffmpeg and audiowmark; it does not need the audio libraries
+videowmark_SOURCES = videowmark.cc utils.hh utils.cc process.cc process.hh
+videowmark_LDFLAGS = $(AUDIOWMARK_CLI_LDFLAGS)
+if COND_WINDOWS
+videowmark_LDFLAGS += -lshell32 -ladvapi32
+endif
+
 noinst_PROGRAMS = testconvcode testrandom testmp3 teststream testlimiter testshortcode testmpegts testthreadpool \
-		  testrawconverter testwavformat
+		  testrawconverter testwavformat testprocess
+
+testprocess_SOURCES = testprocess.cc utils.hh utils.cc process.cc process.hh
+if COND_WINDOWS
+testprocess_LDFLAGS = -ladvapi32
+endif
 
 testconvcode_SOURCES = testconvcode.cc $(COMMON_SRC)
 testconvcode_LDFLAGS = $(COMMON_LIBS)

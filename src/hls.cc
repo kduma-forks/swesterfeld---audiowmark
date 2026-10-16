@@ -18,14 +18,8 @@
 #include <string>
 #include <regex>
 
-#include <sys/types.h>
-#if !defined(_WIN32)
-#include <sys/wait.h>
-#endif
-#include <sys/stat.h>
-#include <unistd.h>
-
 #include "utils.hh"
+#include "process.hh"
 #include "mpegts.hh"
 #include "sfinputstream.hh"
 #include "sfoutputstream.hh"
@@ -61,13 +55,7 @@ hls_add (const Key& key, const string& infile, const string& outfile, const stri
 static bool
 file_exists (const string& filename)
 {
-  struct stat st;
-
-  if (stat (filename.c_str(), &st) == 0)
-    {
-      return S_ISREG (st.st_mode);
-    }
-  return false;
+  return Process::is_regular_file (filename);
 }
 
 static string
@@ -86,115 +74,60 @@ args2string (const vector<string>& args)
   return result;
 }
 
+/* Run a helper program (ffmpeg / ffprobe) without a shell: it is resolved beside the audiowmark
+ * executable first (always, if the build requires bundled tools), file arguments must be absolute
+ * (see Process::absolute_path), so they can neither be mistaken for options nor for URLs.
+ */
 static Error
 run (const vector<string>& args, vector<string> *pipe_out = nullptr)
 {
   auto report_error = [=] { error ("audiowmark: failed to execute %s\n", args2string (args).c_str()); };
 
-  char *argv[args.size() + 1];
-  for (size_t i = 0; i < args.size(); i++)
-    argv[i] = (char *) args[i].c_str();
-  argv[args.size()] = nullptr;
-
-  int pipe_fds[2];
-  if (pipe_out)
-    {
-      if (pipe (pipe_fds) == -1)
-        {
-          report_error();
-          return Error ("pipe() failed");
-        }
-    }
-  pid_t pid = fork();
-  if (pid < 0)
-    {
-      if (pipe_out)
-        {
-          close (pipe_fds[0]);
-          close (pipe_fds[1]);
-        }
-      report_error();
-      return Error ("fork() failed");
-    }
-  if (pid == 0) /* child process */
-    {
-      if (pipe_out)
-        {
-          // replace stdout with pipe
-          if (dup2 (pipe_fds[1], STDOUT_FILENO) == -1)
-            {
-              perror ("audiowmark: dup2() failed");
-              exit (127);
-            }
-
-          // close remaining pipe fds
-          close (pipe_fds[0]);
-          close (pipe_fds[1]);
-        }
-      execvp (argv[0], argv);
-      perror ("audiowmark: execvp() failed");
-
-      // should not be reached in normal operation, so exec failed
-      exit (127);
-    }
-
-  /* parent process */
-  if (pipe_out) /* capture child stdout */
-    {
-      close (pipe_fds[1]); // close pipe write fd
-
-      FILE *f = fdopen (pipe_fds[0], "r");
-      if (!f)
-        {
-          close (pipe_fds[0]);
-          report_error();
-          return Error ("fdopen() pipe failed");
-        }
-      char buffer[1024];
-      while (fgets (buffer, 1024, f))
-        {
-          if (strlen (buffer) && buffer[strlen (buffer) - 1] == '\n')
-            buffer[strlen (buffer) - 1] = 0;
-          if (pipe_out)
-            pipe_out->push_back (buffer);
-        }
-      fclose (f);        // close pipe read fd
-    }
-  int status;
-  pid_t exited = waitpid (pid, &status, 0);
-  if (exited < 0)
+  vector<string> argv = args;
+  Error err = Process::tool (args[0], argv[0]);
+  if (err)
     {
       report_error();
-      return Error ("waitpid() failed");
+      return err;
     }
-  if (WIFEXITED (status))
+  err = Process::run (argv, pipe_out);
+  if (err)
+    report_error();
+  return err;
+}
+
+/* HLS segment names are read from a playlist, so they must stay below the input and output directories */
+static bool
+segment_name_ok (const string& name)
+{
+  if (name.empty() || name[0] == '/' || name[0] == '\\' || name.find (':') != string::npos)
+    return false;
+
+  string component;
+  for (char c : name + "/")
     {
-      int exit_status = WEXITSTATUS (status);
-      if (exit_status != 0)
+      if (c == '/' || c == '\\')
         {
-          report_error();
-          return Error (string_printf ("subprocess failed / exit status %d", exit_status));
+          if (component == "..")
+            return false;
+          component.clear();
         }
+      else
+        component += c;
     }
-  else
-    {
-      report_error();
-      return Error ("child didn't exit normally");
-    }
-  return Error::Code::NONE;
+  return true;
 }
 
 Error
 ff_decode (const string& filename, WavData& out_wav_data)
 {
-  FILE *tmp_file = tmpfile();
-  ScopedFile tmp_file_s (tmp_file);
-  string tmp_file_name = string_printf ("/dev/fd/%d", fileno (tmp_file));
+  Process::TempDir temp_dir;
+  Error err = temp_dir.create();
+  if (err)
+    return err;
+  string tmp_file_name = temp_dir.file ("decoded.wav");
 
-  if (!tmp_file)
-    return Error ("failed to create temp file");
-
-  Error err = run ({"ffmpeg", "-v", "error", "-nostdin", "-y", "-f",  "mpegts", "-i", filename, "-f", "wav", tmp_file_name});
+  err = run ({"ffmpeg", "-v", "error", "-nostdin", "-y", "-f",  "mpegts", "-i", Process::absolute_path (filename), "-f", "wav", tmp_file_name});
   if (err)
     return err;
 
@@ -202,8 +135,8 @@ ff_decode (const string& filename, WavData& out_wav_data)
   return err;
 }
 
-int
-hls_add (const Key& key, const string& infile, const string& outfile, const string& bits)
+static int
+hls_add_to_file (const Key& key, const string& infile, const string& outfile, const string& bits)
 {
   TSReader reader;
 
@@ -286,42 +219,116 @@ hls_add (const Key& key, const string& infile, const string& outfile, const stri
   return 0;
 }
 
+static string
+parent_directory (const string& path)
+{
+  size_t pos = path.find_last_of (
+#ifdef _WIN32
+    "/\\"
+#else
+    "/"
+#endif
+  );
+  if (pos == string::npos)
+    return ".";
+  return pos == 0 ? path.substr (0, 1) : path.substr (0, pos);
+}
+
+/* A named output file is written next to its destination and only moved into place after the segment
+ * was complete, so a failed run never truncates or removes an existing output. Stdout ("-") is streamed.
+ */
+int
+hls_add (const Key& key, const string& infile, const string& outfile, const string& bits)
+{
+  Process::InterruptGuard guard;
+  Error init_err = guard.init();
+  if (init_err)
+    {
+      error ("audiowmark: hls: cannot install the interrupt handler: %s\n", init_err.message());
+      return 1;
+    }
+
+  if (outfile == "-")
+    {
+      int stream_rc = hls_add_to_file (key, infile, outfile, bits);
+      Error interrupted = guard.error();
+      if (stream_rc == 0 && interrupted)
+        {
+          error ("audiowmark: hls: %s\n", interrupted.message());
+          return 1;
+        }
+      return stream_rc;
+    }
+
+  if (infile != "-" && Process::same_file (infile, outfile))
+    {
+      error ("audiowmark: hls: input and output must be different files\n");
+      return 1;
+    }
+
+  string destination = Process::absolute_path (outfile);
+  Process::TempDir staging;
+  Error err = staging.create (parent_directory (destination));
+  if (err)
+    {
+      error ("audiowmark: hls: cannot create temporary file next to %s: %s\n", outfile.c_str(), err.message());
+      return 1;
+    }
+  string staged = staging.file ("segment.ts");
+
+  int rc = hls_add_to_file (key, infile, staged, bits);
+  if (rc != 0)
+    return rc;
+  err = guard.error();
+  if (err)
+    {
+      error ("audiowmark: hls: %s\n", err.message());
+      return 1;
+    }
+
+  err = Process::replace_file (staged, destination);
+  if (err)
+    {
+      error ("audiowmark: hls: cannot write %s: %s\n", outfile.c_str(), err.message());
+      return 1;
+    }
+  return 0;
+}
+
 Error
 bit_rate_from_m3u8 (const string& m3u8, const WavData& wav_data, int& bit_rate)
 {
-  FILE *tmp_file = tmpfile();
-  ScopedFile tmp_file_s (tmp_file);
-  string tmp_file_name = string_printf ("/dev/fd/%d", fileno (tmp_file));
+  Process::TempDir temp_dir;
+  Error err = temp_dir.create();
+  if (err)
+    return err;
+  string tmp_file_name = temp_dir.file ("audio.aac");
 
-  if (!tmp_file)
-    return Error ("failed to create temp file");
-
-  Error err = run ({"ffmpeg", "-v", "error", "-nostdin", "-y", "-i", m3u8, "-c:a", "copy", "-f", "adts", tmp_file_name});
+  err = run ({"ffmpeg", "-v", "error", "-nostdin", "-y", "-i", Process::absolute_path (m3u8), "-c:a", "copy", "-f", "adts", tmp_file_name});
   if (err)
     return err;
 
-  struct stat stat_buf;
-  if (stat (tmp_file_name.c_str(), &stat_buf) != 0)
-    {
-      return Error (string_printf ("failed to stat temporary aac file: %s", strerror (errno)));
-    }
+  uint64_t size = 0;
+  err = Process::file_size (tmp_file_name, size);
+  if (err)
+    return Error (string_printf ("failed to stat temporary aac file: %s", err.message()));
+
   double seconds = double (wav_data.n_frames()) / wav_data.sample_rate();
-  bit_rate = stat_buf.st_size / seconds * 8;
+  bit_rate = size / seconds * 8;
   return Error::Code::NONE;
 }
 
 Error
 load_audio_master (const string& filename, WavData& audio_master_data)
 {
-  FILE *tmp_file = tmpfile();
-  ScopedFile tmp_file_s (tmp_file);
-  string tmp_file_name = string_printf ("/dev/fd/%d", fileno (tmp_file));
-
-  if (!tmp_file)
-    return Error ("failed to create temp file");
+  Process::TempDir temp_dir;
+  Error err = temp_dir.create();
+  if (err)
+    return err;
+  string tmp_file_name = temp_dir.file ("master.wav");
 
   /* extract wav */
-  Error err = run ({"ffmpeg", "-v", "error", "-nostdin", "-y", "-i", filename, "-f", "wav", tmp_file_name});
+  err = run ({"ffmpeg", "-v", "error", "-nostdin", "-y", "-i", Process::absolute_path (filename), "-f", "wav", tmp_file_name});
   if (err)
     return err;
 
@@ -351,7 +358,7 @@ probe_input_segment (const string& filename, map<string, string>& params)
     }
 
   vector<string> format_out;
-  err = run ({"ffprobe", "-v", "error", "-print_format", "compact", "-show_streams", filename}, &format_out);
+  err = run ({"ffprobe", "-v", "error", "-print_format", "compact", "-show_entries", "stream=index,codec_name,channels,channel_layout,start_time", Process::absolute_path (filename)}, &format_out);
   if (err)
     {
       error ("audiowmark: hls: failed to validate input file: %s\n", filename.c_str());
@@ -390,8 +397,22 @@ probe_input_segment (const string& filename, map<string, string>& params)
 int
 hls_prepare (const string& in_dir, const string& out_dir, const string& filename, const string& audio_master)
 {
+  Process::InterruptGuard guard;
+  Error guard_err = guard.init();
+  if (guard_err)
+    {
+      error ("audiowmark: hls: cannot install the interrupt handler: %s\n", guard_err.message());
+      return 1;
+    }
+  auto interrupted = [&] {
+    Error e = guard.error();
+    if (e)
+      error ("audiowmark: hls: %s\n", e.message());
+    return bool (e);
+  };
+
   string in_name = in_dir + "/" + filename;
-  FILE *in_file = fopen (in_name.c_str(), "r");
+  FILE *in_file = utf8_fopen (in_name, "rb");
   ScopedFile in_file_s (in_file);
 
   if (!in_file)
@@ -400,10 +421,60 @@ hls_prepare (const string& in_dir, const string& out_dir, const string& filename
       return 1;
     }
 
-  int mkret = mkdir (out_dir.c_str(), 0755);
-  if (mkret == -1 && errno != EEXIST)
+  /* the playlist is copied byte for byte (line endings included); it is only parsed for segment names */
+  string playlist;
+  {
+    char buffer[4096];
+    size_t count;
+    while ((count = fread (buffer, 1, sizeof (buffer), in_file)) > 0)
+      playlist.append (buffer, count);
+    if (ferror (in_file))
+      {
+        error ("audiowmark: error reading input playlist %s\n", in_name.c_str());
+        return 1;
+      }
+  }
+
+  struct Segment
+  {
+    string              name;
+    size_t              size;
+    map<string, string> vars;
+  };
+  vector<Segment> segments;
+  const regex blank_re (R"(\s*(#.*)?)");
+  for (size_t pos = 0; pos < playlist.size();)
     {
-      error ("audiowmark: unable to create directory %s: %s\n", out_dir.c_str(), strerror (errno));
+      size_t eol = playlist.find ('\n', pos);
+      if (eol == string::npos)
+        eol = playlist.size();
+      string line = playlist.substr (pos, eol - pos);
+      pos = eol + 1;
+      while (!line.empty() && line.back() == '\r')
+        line.pop_back();
+
+      if (line.size() > 4096)
+        {
+          error ("audiowmark: line too long in playlist %s\n", in_name.c_str());
+          return 1;
+        }
+      if (regex_match (line, blank_re))
+        continue;   /* blank line or comment */
+
+      if (!segment_name_ok (line))
+        {
+          error ("audiowmark: unsafe segment name in playlist: %s\n", line.c_str());
+          return 1;
+        }
+      Segment segment;
+      segment.name = line;
+      segments.push_back (segment);
+    }
+
+  Error mkerr = Process::make_directory (out_dir);
+  if (mkerr)
+    {
+      error ("audiowmark: unable to create directory %s: %s\n", out_dir.c_str(), mkerr.message());
       return 1;
     }
 
@@ -413,12 +484,17 @@ hls_prepare (const string& in_dir, const string& out_dir, const string& filename
       error ("audiowmark: output file already exists: %s\n", out_name.c_str());
       return 1;
     }
-  FILE *out_file = fopen (out_name.c_str(), "w");
+  FILE *out_file = utf8_fopen (out_name, "wb");
   ScopedFile out_file_s (out_file);
 
   if (!out_file)
     {
       error ("audiowmark: error opening output playlist %s\n", out_name.c_str());
+      return 1;
+    }
+  if (fwrite (playlist.data(), 1, playlist.size(), out_file) != playlist.size() || fflush (out_file) != 0)
+    {
+      error ("audiowmark: error writing output playlist %s\n", out_name.c_str());
       return 1;
     }
 
@@ -430,40 +506,10 @@ hls_prepare (const string& in_dir, const string& out_dir, const string& filename
       return 1;
     }
 
-  struct Segment
-  {
-    string              name;
-    size_t              size;
-    map<string, string> vars;
-  };
-  vector<Segment> segments;
-  char buffer[1024];
-  const regex blank_re (R"(\s*(#.*)?)");
-  while (fgets (buffer, 1024, in_file))
-    {
-      /* kill newline chars at end */
-      int last = strlen (buffer) - 1;
-      while (last > 0 && (buffer[last] == '\n' || buffer[last] == '\r'))
-        buffer[last--] = 0;
-
-      string s = buffer;
-
-      std::smatch match;
-      if (regex_match (s, blank_re))
-        {
-          /* blank line or comment */
-          fprintf (out_file, "%s\n", s.c_str());
-        }
-      else
-        {
-          fprintf (out_file, "%s\n", s.c_str());
-          Segment segment;
-          segment.name = s;
-          segments.push_back (segment);
-        }
-    }
   for (auto& segment : segments)
     {
+      if (interrupted())
+        return 1;
       map<string, string> params;
       string segname = in_dir + "/" + segment.name;
 
@@ -531,6 +577,8 @@ hls_prepare (const string& in_dir, const string& out_dir, const string& filename
   size_t start_pos = 0;
   for (auto& segment : segments)
     {
+      if (interrupted())
+        return 1;
       WavData out;
       Error err = ff_decode (in_dir + "/" + segment.name, out);
       if (err)
@@ -614,6 +662,8 @@ hls_prepare (const string& in_dir, const string& out_dir, const string& filename
       /* start position for the next segment */
       start_pos += segment.size;
     }
+  if (interrupted())
+    return 1;
   int orig_seconds = start_pos / audio_master_data.sample_rate();
   info ("Time:         %d:%02d\n", orig_seconds / 60, orig_seconds % 60);
   return 0;

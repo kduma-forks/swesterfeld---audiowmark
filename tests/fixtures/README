@@ -1,0 +1,27 @@
+video-vp8.webm
+===============
+
+A 64x48, 5 fps, 70 second VP8 video track without audio (23414 bytes). tests/full-test.py muxes
+generated noise into it for the WebM cases, because the FFmpeg that is shipped (and any default
+software-only FFmpeg) has no VP8/VP9 encoder. It contains no third-party content: the frames are a
+synthetic moving gradient. Release builds must not need libvpx; only this file's author does.
+
+SHA-256: 241cc6dc187596c8a736bd439c5747d62b2cbc4400d7f93131fbadf97b428050
+
+Reproduction (libvpx 1.11.0 vpxenc and FFmpeg 7.1.5; other versions give an equivalent but not
+byte-identical file, which is fine because the test only needs a valid VP8 WebM video of 70 s):
+
+    python3 - <<'EOF'
+    w, h, n = 64, 48, 350
+    with open('in.yuv', 'wb') as f:
+        for i in range(n):
+            f.write(bytes(((x * 3 + y * 2 + i * 5) & 255) for y in range(h) for x in range(w)))
+            f.write(bytes((128 + ((x + i) & 31)) for y in range(h // 2) for x in range(w // 2)))
+            f.write(bytes((128 - ((y + i) & 31)) for y in range(h // 2) for x in range(w // 2)))
+    EOF
+    vpxenc --codec=vp8 --i420 -w 64 -h 48 --fps=5/1 --limit=350 --end-usage=cq --cq-level=40 \
+           --min-q=30 --max-q=50 --kf-max-dist=25 --threads=1 -o v.webm in.yuv
+    ffmpeg -i v.webm -map 0:v -c:v copy -an -map_metadata -1 -fflags +bitexact -flags:v +bitexact video-vp8.webm
+
+Check with: ffprobe -v error -show_entries stream=codec_name,width,height:format=duration video-vp8.webm
+(expected: vp8, 64x48, duration 70.000000). The test fails, it does not skip, if the file is missing.

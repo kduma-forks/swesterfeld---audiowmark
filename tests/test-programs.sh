@@ -2,7 +2,7 @@
 
 source test-common.sh
 
-for TEST in testrawconverter
+for TEST in testrawconverter testprocess
 do
   if [ "x$Q" == "x1" ] && [ -z "$V" ]; then
     $TOP_BUILDDIR/src/$TEST > /dev/null

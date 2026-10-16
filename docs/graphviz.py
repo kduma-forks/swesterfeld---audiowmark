@@ -9,7 +9,7 @@ Needs pygraphviz
 # Based on https://github.com/jgm/pandocfilters/blob/master/examples/graphviz.py
 
 import sys, os, pygraphviz
-from pandocfilters import toJSONFilter, Para, Image, RawBlock, get_filename4code, get_caption, get_extension, get_value
+from pandocfilters import toJSONFilter, Para, Image, get_filename4code, get_caption, get_extension, get_value
 
 # https://pandoc.org/lua-filters.html
 
@@ -30,8 +30,7 @@ def graphviz (key, value, frmat, _):
         g.layout ()
         g.draw (dest, prog = prog)
         sys.stderr.write ('Create image: ' + dest + '\n')
-      if dest.endswith ('.svg'):
-        return RawBlock (u'html', '<object type="image/svg+xml" data="%s"></object>' % dest)
+      # Image for every format: HTML embeds the SVG (pandoc --embed-resources), LaTeX includes the PDF.
       return Para ([Image ([ident, [], keyvals], caption, [dest, typef])])
 
 if __name__ == "__main__":

@@ -71,7 +71,8 @@ HLSOutputStream::set_channel_layout (const string& channel_layout)
 
 HLSOutputStream::~HLSOutputStream()
 {
-  close();
+  Error ignored = close();
+  (void) ignored;
 }
 
 /* Add an output stream. */
@@ -386,6 +387,38 @@ HLSOutputStream::close_stream()
   av_frame_free (&m_tmp_frame);
   av_packet_free (&m_tmp_pkt);
   swr_free (&m_swr_ctx);
+  m_st = nullptr;
+}
+
+/* Release every resource that may have been acquired by open(), including partially initialized
+ * output. Cleanup is unconditional; the first trailer/close failure is returned after all handles
+ * have been released (important on Windows, where an open AVIO handle prevents temp cleanup).
+ */
+Error
+HLSOutputStream::release_output (bool write_trailer)
+{
+  Error result;
+  if (m_fmt_ctx && write_trailer)
+    {
+      int ret = av_write_trailer (m_fmt_ctx);
+      if (ret < 0)
+        result = Error (string_printf ("could not write output trailer: %s", av_err2str (ret)));
+    }
+
+  close_stream();
+
+  if (m_fmt_ctx)
+    {
+      if (m_fmt_ctx->pb && !(m_fmt_ctx->oformat->flags & AVFMT_NOFILE))
+        {
+          int ret = avio_closep (&m_fmt_ctx->pb);
+          if (ret < 0 && !result)
+            result = Error (string_printf ("could not close output file: %s", av_err2str (ret)));
+        }
+      avformat_free_context (m_fmt_ctx);
+      m_fmt_ctx = nullptr;
+    }
+  return result;
 }
 
 Error
@@ -393,9 +426,27 @@ HLSOutputStream::open (const string& out_filename, size_t cut_aac_frames, size_t
 {
   assert (m_state == State::NEW);
 
+  Error err = m_interrupt_guard.init();
+  if (err)
+    {
+      m_state = State::CLOSED;
+      return err;
+    }
+  if (m_interrupt_guard.requested())
+    {
+      m_state = State::CLOSED;
+      return m_interrupt_guard.error();
+    }
+
+  auto fail_open = [this] (Error primary) {
+    Error cleanup = release_output (false);
+    m_state = State::CLOSED;
+    return primary ? primary : cleanup;
+  };
+
   avformat_alloc_output_context2 (&m_fmt_ctx, NULL, "mpegts", NULL);
   if (!m_fmt_ctx)
-    return Error ("failed to alloc avformat output context");
+    return fail_open (Error ("failed to alloc avformat output context"));
 
   /*
    * Since each segment is generated individually, the continuity counter fields of each
@@ -405,7 +456,7 @@ HLSOutputStream::open (const string& out_filename, size_t cut_aac_frames, size_t
    */
   int ret = av_opt_set (m_fmt_ctx->priv_data, "mpegts_flags", "+initial_discontinuity", 0);
   if (ret < 0)
-    return Error (av_err2str (ret));
+    return fail_open (Error (av_err2str (ret)));
 
   string filename = out_filename;
   if (filename == "-")
@@ -413,25 +464,29 @@ HLSOutputStream::open (const string& out_filename, size_t cut_aac_frames, size_t
 
   ret = avio_open (&m_fmt_ctx->pb, filename.c_str(), AVIO_FLAG_WRITE);
   if (ret < 0)
-    return Error (av_err2str (ret));
+    return fail_open (Error (av_err2str (ret)));
 
   AVDictionary *opt = nullptr;
   const AVCodec *audio_codec;
-  Error err = add_stream (&audio_codec, AV_CODEC_ID_AAC);
+  err = add_stream (&audio_codec, AV_CODEC_ID_AAC);
   if (err)
-    return err;
+    return fail_open (err);
 
   err = open_audio (audio_codec, opt);
   if (err)
-    return err;
+    return fail_open (err);
 
   /* Write the stream header, if any. */
   ret = avformat_write_header (m_fmt_ctx, &opt);
+  av_dict_free (&opt);
   if (ret < 0)
     {
       error ("Error occurred when writing output file: %s\n",  av_err2str(ret));
-      return Error ("avformat_write_header failed\n");
+      return fail_open (Error (string_printf ("avformat_write_header failed: %s", av_err2str (ret))));
     }
+
+  if (m_interrupt_guard.requested())
+    return fail_open (m_interrupt_guard.error());
 
   m_delete_input_start = delete_input_start;
   m_cut_aac_frames = cut_aac_frames;
@@ -454,28 +509,38 @@ HLSOutputStream::close()
   // never close twice
   m_state = State::CLOSED;
 
-  Error err;
-  while (write_audio_frame (err) == EncResult::OK);
-  if (err)
-    return err;
+  Error result;
+  if (m_interrupt_guard.requested())
+    result = m_interrupt_guard.error();
+  else
+    {
+      while (write_audio_frame (result) == EncResult::OK)
+        {
+          if (m_interrupt_guard.requested())
+            {
+              result = m_interrupt_guard.error();
+              break;
+            }
+        }
+    }
 
-  av_write_trailer (m_fmt_ctx);
-
-  close_stream();
-
-  /* Close the output file. */
-  if (!(m_fmt_ctx->oformat->flags & AVFMT_NOFILE))
-    avio_closep (&m_fmt_ctx->pb);
-
-  /* free the stream */
-  avformat_free_context (m_fmt_ctx);
-
-  return Error::Code::NONE;
+  /* A cancelled/failed stream is discarded by the caller, so do not spend more work finalizing it.
+   * The AVIO handle is still always closed by release_output().
+   */
+  Error cleanup = release_output (!result);
+  if (!result && cleanup)
+    result = cleanup;
+  if (!result && m_interrupt_guard.requested())
+    result = m_interrupt_guard.error();
+  return result;
 }
 
 Error
 HLSOutputStream::write_frames (const std::vector<float>& frames)
 {
+  if (m_interrupt_guard.requested())
+    return m_interrupt_guard.error();
+
   // if we don't need any more aac frames, just throw away samples (save cpu cycles)
   if (m_keep_aac_frames == 0)
     return Error::Code::NONE;
@@ -495,6 +560,8 @@ HLSOutputStream::write_frames (const std::vector<float>& frames)
       write_audio_frame (err);
       if (err)
         return err;
+      if (m_interrupt_guard.requested())
+        return m_interrupt_guard.error();
     }
   return Error::Code::NONE;
 }

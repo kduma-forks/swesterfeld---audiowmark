@@ -11,9 +11,18 @@ AC_CANONICAL_HOST
 AC_ARG_ENABLE([static-deps], [AS_HELP_STRING([--enable-static-deps], [request static dependency link flags from pkg-config])], [], [enable_static_deps=no])
 LT_INIT
 AM_CONDITIONAL([COND_WINDOWS], [test "x$host_os" != "x${host_os#mingw}"])
-AC_ARG_ENABLE([videowmark], [AS_HELP_STRING([--disable-videowmark], [do not install the videowmark script])], [], [enable_videowmark=yes])
+AC_ARG_ENABLE([videowmark], [AS_HELP_STRING([--disable-videowmark], [do not build or install videowmark])], [], [enable_videowmark=yes])
 AM_CONDITIONAL([COND_VIDEOWMARK], [test "x$enable_videowmark" = xyes])
+AC_ARG_ENABLE([bundled-tools], [AS_HELP_STRING([--enable-bundled-tools], [require helper programs beside the executable, without PATH fallback])], [], [enable_bundled_tools=no])
+AS_CASE([$enable_bundled_tools], [yes], [bundled_tools=1], [no], [bundled_tools=0],
+  [AC_MSG_ERROR([--enable-bundled-tools accepts only yes or no])])
+AC_DEFINE_UNQUOTED([AUDIOWMARK_BUNDLED_TOOLS], [$bundled_tools], [Require bundled helper programs])
 AC_ARG_VAR([AUDIOWMARK_CLI_LDFLAGS], [extra flags for standalone CLI only (for example -all-static)])
+AC_PATH_PROGS([PYTHON], [python3 python])
+AS_IF([test -n "$PYTHON"], [
+  AS_IF(["$PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1],
+    [], [PYTHON=""])
+])
 
 AC_C_BIGENDIAN()
 
@@ -121,6 +130,24 @@ dnl -------------------------------------------------------------------------
 dnl --------------- building documentation is optional ----------------------
 AC_ARG_WITH([docs], [AS_HELP_STRING([--with-docs], [build documentation])], [], [with_docs=no])
 AM_CONDITIONAL([COND_WITH_DOCS], [test "x$with_docs" != "xno"])
+AC_ARG_VAR([DOC_VERSION], [version displayed in the technical documentation])
+AC_ARG_VAR([DOC_COMMIT], [source commit displayed in the technical documentation])
+AS_IF([test -z "$DOC_VERSION"], [DOC_VERSION="$PACKAGE_VERSION"])
+AS_IF([test -z "$DOC_COMMIT"], [DOC_COMMIT="unknown"])
+AS_IF([test "x$with_docs" != "xno"], [
+  AC_PATH_PROG([PANDOC], [pandoc])
+  AC_PATH_PROG([GNUPLOT], [gnuplot])
+  AC_PATH_PROG([DOT], [dot])
+  AC_PATH_PROG([XELATEX], [xelatex])
+  AS_IF([test -z "$PANDOC" || test -z "$GNUPLOT" || test -z "$DOT" || test -z "$XELATEX" || test -z "$PYTHON"],
+    [AC_MSG_ERROR([--with-docs requires pandoc, gnuplot, dot, xelatex and Python 3])])
+  AC_MSG_CHECKING([for Python documentation modules])
+  AS_IF(["$PYTHON" -c 'import pygraphviz, pandocfilters' >/dev/null 2>&1],
+    [AC_MSG_RESULT([yes])], [AC_MSG_ERROR([--with-docs requires Python pygraphviz and pandocfilters])])
+  AC_MSG_CHECKING([whether pandoc supports embedded resources])
+  AS_IF(["$PANDOC" --help | grep -q -- --embed-resources],
+    [AC_MSG_RESULT([yes])], [AC_MSG_ERROR([--with-docs requires pandoc 2.19 or newer (--embed-resources)])])
+])
 dnl -------------------------------------------------------------------------
 
 dnl -------------------- address sanitizer ----------------------------------

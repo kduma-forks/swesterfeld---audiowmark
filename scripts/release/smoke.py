@@ -5,6 +5,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import wave
 
@@ -12,9 +13,16 @@ import wave
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cli', type=pathlib.Path, required=True)
+    parser.add_argument('--variant', choices=('cli', 'full'), default='cli')
+    parser.add_argument('--full-tests', type=pathlib.Path,
+                        help='full-test.py from the same source revision (required for full)')
     args = parser.parse_args()
     cli = args.cli.resolve()
     metadata = json.loads((cli.parent.parent / 'metadata.json').read_text())
+    if metadata.get('variant', metadata.get('kind')) != args.variant:
+        raise RuntimeError('package variant mismatch')
+    if args.variant == 'full' and (not args.full_tests or not args.full_tests.is_file()):
+        parser.error('--full-tests must identify full-test.py for a full package')
     env = os.environ.copy()
     for key in ('LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'DYLD_FALLBACK_LIBRARY_PATH'):
         env.pop(key, None)
@@ -47,7 +55,11 @@ def main():
         pipe_wav = work / 'pipe.wav'
         pipe_wav.write_bytes(piped.stdout)
         run('cmp', pipe_wav, payload)
-    print('extracted CLI smoke passed')
+    if args.variant == 'full':
+        with tempfile.TemporaryDirectory(prefix='audiowmark-full-package-') as directory:
+            subprocess.run([sys.executable, str(args.full_tests.resolve()), '--bin-dir', str(cli.parent), '--smoke'],
+                           cwd=directory, env=env, check=True)
+    print('extracted ' + args.variant + ' smoke passed')
 
 
 if __name__ == '__main__':

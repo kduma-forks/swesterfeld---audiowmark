@@ -193,6 +193,46 @@ seek_perf (const Key& key, int sample_rate, double seconds)
   return 0;
 }
 
+/* Force open() to fail after avio_open() created the file. In particular on Windows, reopening the
+ * same path for writing proves that the partial FFmpeg output handle was released immediately.
+ */
+int
+open_failure_cleanup()
+{
+  Process::TempDir temporary;
+  Error err = temporary.create();
+  if (err)
+    {
+      error ("testhls: cannot create temporary directory: %s\n", err.message());
+      return 1;
+    }
+  const string output = temporary.file ("partial.ts");
+  HLSOutputStream stream (2, 44100, 16);
+  stream.set_bit_rate (192000);
+  stream.set_channel_layout ("not-a-channel-layout");
+  err = stream.open (output, 0, 1, 0, 0);
+  if (!err)
+    {
+      error ("testhls: invalid channel layout unexpectedly opened\n");
+      return 1;
+    }
+
+  FILE *file = utf8_fopen (output, "wb");
+  if (!file)
+    {
+      error ("testhls: partial output handle was not released\n");
+      return 1;
+    }
+  const char marker[] = "released";
+  bool ok = fwrite (marker, 1, sizeof (marker), file) == sizeof (marker) && fclose (file) == 0;
+  if (!ok)
+    {
+      error ("testhls: cannot reuse partial output file\n");
+      return 1;
+    }
+  return 0;
+}
+
 int
 main (int argc, char **argv)
 {
@@ -221,6 +261,10 @@ main (int argc, char **argv)
           return 1;
         }
       return 0;
+    }
+  else if (argc == 2 && strcmp (argv[1], "open-failure-cleanup") == 0)
+    {
+      return open_failure_cleanup();
     }
   else
     {

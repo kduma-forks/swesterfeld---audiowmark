@@ -16,8 +16,54 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent
 
-def entries():
-    return json.loads((ROOT / 'dependencies.lock.json').read_text())['sources']
+def _variant(variant):
+    if variant not in ('cli', 'full'):
+        raise ValueError('variant must be cli or full')
+    return variant
+
+def lock_files(variant='cli'):
+    _variant(variant)
+    locks = [ROOT / 'dependencies.lock.json']
+    if variant == 'full':
+        locks.append(ROOT / 'dependencies-full.lock.json')
+    return locks
+
+def entries(variant='cli'):
+    selected = []
+    names = set()
+    filenames = set()
+    for lock in lock_files(variant):
+        data = json.loads(lock.read_text())
+        if data.get('schema') != 1 or not isinstance(data.get('sources'), list):
+            raise ValueError('unsupported dependency lock schema: ' + str(lock))
+        for entry in data['sources']:
+            required = ('name', 'version', 'url', 'filename', 'sha256')
+            if any(not isinstance(entry.get(key), str) or not entry[key] for key in required):
+                raise ValueError('malformed dependency entry in ' + str(lock))
+            if entry['name'] in names or entry['filename'] in filenames:
+                raise ValueError('duplicate dependency in effective locks: ' + entry['name'])
+            if len(entry['sha256']) != 64 or any(c not in '0123456789abcdef' for c in entry['sha256']):
+                raise ValueError('invalid SHA256 for ' + entry['name'])
+            names.add(entry['name'])
+            filenames.add(entry['filename'])
+            selected.append(entry)
+    return selected
+
+def effective_manifest(variant='cli'):
+    variant = _variant(variant)
+    return {
+        'schema': 1,
+        'variant': variant,
+        'locks': [
+            {'filename': path.name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+            for path in lock_files(variant)
+        ],
+        'sources': entries(variant),
+    }
+
+def write_manifest(path, variant='cli'):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(effective_manifest(variant), indent=2) + '\n')
 
 def fetch(entry, cache):
     archive = cache / entry['filename']
@@ -71,8 +117,10 @@ def main():
     parser.add_argument('--cache', type=pathlib.Path, required=True)
     parser.add_argument('--sources', type=pathlib.Path)
     parser.add_argument('--licenses', type=pathlib.Path)
+    parser.add_argument('--variant', choices=('cli', 'full'), default='cli')
+    parser.add_argument('--write-manifest', type=pathlib.Path)
     args = parser.parse_args()
-    selected = entries()
+    selected = entries(args.variant)
     for entry in selected:
         archive = fetch(entry, args.cache)
         if not args.sources:
@@ -105,7 +153,14 @@ def main():
             if not candidates:
                 raise RuntimeError('no license notices for ' + entry['name'])
     if args.licenses:
-        shutil.copy2(ROOT / 'dependencies.lock.json', args.licenses / 'dependencies.lock.json')
+        write_manifest(args.licenses / 'dependencies.lock.json', args.variant)
+        for lock in lock_files(args.variant):
+            # dependencies.lock.json is the effective cache/release manifest;
+            # keep the base input lock beside it under an unambiguous name.
+            name = 'dependencies-base.lock.json' if lock.name == 'dependencies.lock.json' else lock.name
+            shutil.copy2(lock, args.licenses / name)
+    if args.write_manifest:
+        write_manifest(args.write_manifest, args.variant)
 
 if __name__ == '__main__':
     main()

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "name": "lame",
+      "version": "3.100",
+      "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+      "filename": "lame-3.100.tar.gz",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
+    },
+    {
+      "name": "ffmpeg",
+      "version": "7.1.5",
+      "url": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+      "filename": "ffmpeg-7.1.5.tar.xz",
+      "sha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f"
+    }
+  ]
+}

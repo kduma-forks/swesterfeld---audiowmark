@@ -17,15 +17,30 @@ PY
 (cd "$RELEASE_WORK/project"; autoreconf -fi)
 mkdir -p "$RELEASE_WORK/build/project" "$RELEASE_WORK/install"
 export PKG_CONFIG='pkg-config --static'
-export AUDIOWMARK_CLI_LDFLAGS=''
+export AUDIOWMARK_CLI_LDFLAGS='' AUDIOWMARK_SHARED_LDFLAGS=''
 case "$TARGET" in
  linux-musl-*)
   export AUDIOWMARK_CLI_LDFLAGS='-all-static'
+  export AUDIOWMARK_SHARED_LDFLAGS='-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL'
+  ;;
+ linux-gnu-*)
+  export AUDIOWMARK_CLI_LDFLAGS='-static-libstdc++ -static-libgcc'
+  export AUDIOWMARK_SHARED_LDFLAGS='-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL'
   ;;
  win7-x86_64)
   export AUDIOWMARK_CLI_LDFLAGS='-all-static'
+  export AUDIOWMARK_SHARED_LDFLAGS='-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL'
   ;;
  macos-*) ;;
+esac
+# Expand optional arrays with ${array[@]+"${array[@]}"}: macOS Bash 3.2
+# otherwise treats an empty array as unset under set -u.
+additional=()
+case "${SANITIZER:-}" in
+ "") ;;
+ asan-ubsan) additional=(--enable-asan --enable-ubsan) ;;
+ tsan) additional=(--enable-tsan) ;;
+ *) echo 'unknown SANITIZER' >&2; exit 1 ;;
 esac
 test_failure() {
  local check_status=$1 log
@@ -37,11 +52,17 @@ test_failure() {
 }
 pushd "$RELEASE_WORK/build/project" >/dev/null
  "$RELEASE_WORK/project/configure" --prefix="$RELEASE_WORK/install" --libdir="$RELEASE_WORK/install/lib" \
-   --disable-shared --enable-static-deps --disable-videowmark --without-ffmpeg --without-docs
+   --enable-shared --enable-static-deps --disable-videowmark --without-ffmpeg --without-docs ${additional[@]+"${additional[@]}"}
  make -j"$JOBS"
- make check -j"$JOBS" || test_failure $?
+ if [[ -n "${SANITIZER:-}" ]]; then
+   make -C src check -j"$JOBS" || test_failure $?
+   (cd src && ./testthreadpool) || test_failure $?
+ else
+   make check -j"$JOBS" || test_failure $?
+ fi
  make install
 popd >/dev/null
+if [[ "${VALIDATION_ONLY:-0}" == 1 ]]; then exit 0; fi
 python3 "$ROOT/scripts/release/package.py" --target "$TARGET" --version "$VERSION" \
  --install "$RELEASE_WORK/install" --licenses "$RELEASE_WORK/licenses" \
  --output "${RELEASE_OUTPUT:-$ROOT/dist}" --work "$RELEASE_WORK/packages"

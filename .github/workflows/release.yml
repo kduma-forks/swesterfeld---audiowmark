@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      nuget: ${{ steps.version.outputs.nuget_version }}
       sha: ${{ steps.version.outputs.sha }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
@@ -33,6 +34,10 @@ jobs:
           - target: linux-musl-x86_64
             runner: ubuntu-24.04
           - target: linux-musl-aarch64
+            runner: ubuntu-24.04-arm
+          - target: linux-gnu-x86_64
+            runner: ubuntu-24.04
+          - target: linux-gnu-aarch64
             runner: ubuntu-24.04-arm
           - target: win7-x86_64
             runner: windows-2022
@@ -99,8 +104,8 @@ jobs:
         run: |
           export RELEASE_WORK="$GITHUB_WORKSPACE/.release/$TARGET"
           scripts/release/build.sh
-          python3 scripts/release/unpack.py --artifacts dist --cli .release/unpacked-cli
-          env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH python3 scripts/release/smoke.py --cli ".release/unpacked-cli/$TARGET/bin/audiowmark"
+          python3 scripts/release/unpack.py --artifacts dist --native .release/unpacked --cli .release/unpacked-cli
+          env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH python3 scripts/release/smoke.py --sdk ".release/unpacked/$TARGET" --cli ".release/unpacked-cli/$TARGET/bin/audiowmark"
       - name: Windows source build
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -111,8 +116,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          python scripts/release/unpack.py --artifacts dist --cli .release/unpacked-cli
-          python scripts/release/smoke.py --cli ".release/unpacked-cli/$env:TARGET/bin/audiowmark.exe"
+          python scripts/release/unpack.py --artifacts dist --native .release/unpacked --cli .release/unpacked-cli
+          python scripts/release/smoke.py --sdk ".release/unpacked/$env:TARGET" --cli ".release/unpacked-cli/$env:TARGET/bin/audiowmark.exe"
       - name: Cache completed source dependencies
         if: always() && steps.native-deps-cache.outputs.cache-hit != 'true' && steps.native-deps-cache.outputs.cache-primary-key != '' && hashFiles(format('.release/{0}/prefix/dependencies.lock.json', matrix.target)) != ''
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -144,8 +149,171 @@ jobs:
           name: release-sources
           path: dist/*
           if-no-files-found: error
+  language-packages:
+    needs: [metadata, native]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: native-*
+          path: artifacts
+          merge-multiple: true
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 8.0.x
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        with:
+          toolchain: 1.77.2
+      - name: Package all seven SDKs
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          NUGET: ${{ needs.metadata.outputs.nuget }}
+        run: |
+          python3 scripts/release/unpack.py --artifacts artifacts --native native --cli cli
+          python3 bindings/package.py --version "$VERSION" --nuget-version "$NUGET" --native-dir native --output-dir dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: language-packages
+          path: dist/*
+          if-no-files-found: error
+  consumers:
+    needs: [metadata, native, language-packages]
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-gnu-x86_64
+            rid: linux-x64
+            runner: ubuntu-24.04
+          - target: linux-gnu-aarch64
+            rid: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: linux-musl-x86_64
+            rid: linux-musl-x64
+            runner: ubuntu-24.04
+          - target: linux-musl-aarch64
+            rid: linux-musl-arm64
+            runner: ubuntu-24.04-arm
+          - target: win7-x86_64
+            rid: win-x64
+            runner: windows-2022
+          - target: macos-x86_64
+            rid: osx-x64
+            runner: macos-15-intel
+          - target: macos-aarch64
+            rid: osx-arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    env:
+      TARGET: ${{ matrix.target }}
+      RID: ${{ matrix.rid }}
+      VERSION: ${{ needs.metadata.outputs.version }}
+      NUGET: ${{ needs.metadata.outputs.nuget }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: native-*
+          path: artifacts
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: language-packages
+          path: dist
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        if: ${{ !startsWith(matrix.target, 'linux-musl-') }}
+        with:
+          dotnet-version: 8.0.x
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249
+        if: ${{ !startsWith(matrix.target, 'linux-musl-') }}
+        with:
+          toolchain: 1.77.2
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+        if: runner.os == 'Windows'
+        id: consumer-msys2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+      - name: Restore packages
+        shell: bash
+        run: python3 scripts/release/unpack.py --artifacts artifacts --native native --cli cli
+      - name: C, Rust and C# package consumers (Unix)
+        if: runner.os != 'Windows' && !startsWith(matrix.target, 'linux-musl-')
+        shell: bash
+        run: |
+          cli_target=${TARGET/linux-gnu-/linux-musl-}
+          extra=(); if [[ -d "cli/$cli_target" ]]; then extra=(--cli "$PWD/cli/$cli_target/bin/audiowmark"); fi
+          python3 bindings/test-packages.py --crate "dist/audiowmark-$VERSION.crate" --nuget-feed dist --version "$NUGET" --sdk "native/$TARGET" --rid "$RID" --work-dir "$RUNNER_TEMP/consumers" --framework net8.0 "${extra[@]}"
+      - name: Alpine C, Rust and C# package consumers
+        if: startsWith(matrix.target, 'linux-musl-')
+        shell: bash
+        run: scripts/release/container-consumers.sh
+      - name: Windows consumers outside MSYS2 (including .NET Framework 4.8)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.consumer-msys2.outputs.msys2-location }}
+        run: |
+          $msysRoot = $env:MSYS2_ROOT.Replace('/', '\')
+          $env:CC = Join-Path $msysRoot 'mingw64\bin\gcc.exe'
+          if (!(Test-Path $env:CC)) { throw "MINGW64 compiler missing: $env:CC" }
+          $env:PATH = (($env:PATH -split ';' | Where-Object { $_ -notmatch 'msys64' -and !$_.StartsWith($msysRoot, [StringComparison]::OrdinalIgnoreCase) }) -join ';')
+          python bindings/test-packages.py --crate "dist/audiowmark-$env:VERSION.crate" --nuget-feed dist --version "$env:NUGET" --sdk "native/$env:TARGET" --rid "$env:RID" --work-dir "$env:RUNNER_TEMP/consumers" --framework net8.0 --cli "$env:GITHUB_WORKSPACE/cli/$env:TARGET/bin/audiowmark.exe"
+  sanitizers:
+    needs: metadata
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [asan-ubsan, tsan]
+    env:
+      TARGET: linux-gnu-x86_64
+      VERSION: ${{ needs.metadata.outputs.version }}
+      SANITIZER: ${{ matrix.sanitizer }}
+      VALIDATION_ONLY: '1'
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      TSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          persist-credentials: false
+      - name: Build tools
+        run: sudo apt-get update && sudo apt-get install -y g++ autoconf automake libtool pkg-config cmake ninja-build gettext patch
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: sanitizer-deps-cache
+        with:
+          path: |
+            .release/sanitizer-deps/prefix
+            .release/sanitizer-deps/licenses
+            .release/sanitizer-deps/downloads
+          key: sanitizer-deps-ubuntu22-gcc11-${{ hashFiles('scripts/release/dependencies.lock.json', 'scripts/release/build-deps.sh', 'scripts/release/environment.sh', 'scripts/release/sources.py', 'scripts/release/patches/**') }}
+      - name: Instrumented engine and parallel C ABI regression
+        shell: bash
+        run: |
+          export RELEASE_WORK="$GITHUB_WORKSPACE/.release/sanitizer-deps"
+          scripts/release/build.sh
+      - name: Cache completed sanitizer dependencies
+        if: always() && steps.sanitizer-deps-cache.outputs.cache-hit != 'true' && steps.sanitizer-deps-cache.outputs.cache-primary-key != '' && hashFiles('.release/sanitizer-deps/prefix/dependencies.lock.json') != ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            .release/sanitizer-deps/prefix
+            .release/sanitizer-deps/licenses
+            .release/sanitizer-deps/downloads
+          key: ${{ steps.sanitizer-deps-cache.outputs.cache-primary-key }}
   verify-assets:
-    needs: [metadata, native, sources]
+    needs: [metadata, native, sources, language-packages, consumers, sanitizers]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -159,12 +327,17 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
+          name: language-packages
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
           name: release-sources
           path: dist
       - name: Verify complete asset set and generate checksums
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
-        run: python3 scripts/release/check-assets.py --version "$VERSION" --directory dist
+          NUGET: ${{ needs.metadata.outputs.nuget }}
+        run: python3 scripts/release/check-assets.py --version "$VERSION" --nuget-version "$NUGET" --directory dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-assets

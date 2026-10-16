@@ -11,3 +11,6 @@ if COND_WITH_DOCS
 endif
 
 EXTRA_DIST = README.adoc Dockerfile
+
+include_HEADERS = include/audiowmark.h
+dist_doc_DATA = docs/api.md

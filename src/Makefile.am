@@ -3,7 +3,7 @@ if COND_VIDEOWMARK
 dist_bin_SCRIPTS = videowmark
 endif
 
-COMMON_SRC = utils.hh utils.cc convcode.hh convcode.cc random.hh random.cc wavdata.cc wavdata.hh \
+ENGINE_SRC = utils.hh utils.cc convcode.hh convcode.cc random.hh random.cc wavdata.cc wavdata.hh \
 	     audiostream.cc audiostream.hh sfinputstream.cc sfinputstream.hh stdoutwavoutputstream.cc stdoutwavoutputstream.hh \
 	     sfoutputstream.cc sfoutputstream.hh rawinputstream.cc rawinputstream.hh rawoutputstream.cc rawoutputstream.hh \
 	     rawconverter.cc rawconverter.hh mp3inputstream.cc mp3inputstream.hh wmcommon.cc wmcommon.hh fft.cc fft.hh \
@@ -11,56 +11,83 @@ COMMON_SRC = utils.hh utils.cc convcode.hh convcode.cc random.hh random.cc wavda
 	     wmget.cc wmadd.cc syncfinder.cc syncfinder.hh wmspeed.cc wmspeed.hh threadpool.cc threadpool.hh \
 	     resample.cc resample.hh wavpipeinputstream.cc wavpipeinputstream.hh wavchunkloader.cc wavchunkloader.hh
 COMMON_LIBS = $(SNDFILE_LIBS) $(FFTW_LIBS) $(LIBGCRYPT_LIBS) $(LIBMPG123_LIBS) $(FFMPEG_LIBS) $(LTLIBZITA_RESAMPLER)
-
 if COND_WINDOWS
 COMMON_LIBS += -lbcrypt
 endif
+AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_builddir)
+AM_CXXFLAGS = $(SNDFILE_CFLAGS) $(FFTW_CFLAGS) $(LIBGCRYPT_CFLAGS) $(LIBMPG123_CFLAGS) $(FFMPEG_CFLAGS) -fvisibility=hidden -fvisibility-inlines-hidden
+noinst_LTLIBRARIES = libengine.la
+libengine_la_SOURCES = $(ENGINE_SRC)
 
-AM_CXXFLAGS = $(SNDFILE_CFLAGS) $(FFTW_CFLAGS) $(LIBGCRYPT_CFLAGS) $(LIBMPG123_CFLAGS) $(FFMPEG_CFLAGS)
+# Convenience archive is linked directly into CLI: no SDK runtime dependency.
+audiowmark_SOURCES = audiowmark.cc
+audiowmark_LDADD = libengine.la $(COMMON_LIBS)
+audiowmark_LDFLAGS = $(AUDIOWMARK_CLI_LDFLAGS)
 
-audiowmark_SOURCES = audiowmark.cc $(COMMON_SRC)
-audiowmark_LDFLAGS = $(COMMON_LIBS) $(AUDIOWMARK_CLI_LDFLAGS)
+# A module target avoids libtool's lib prefix/version suffix for Windows DLLs.
 if COND_WINDOWS
-audiowmark_LDFLAGS += -lshell32
+audiowmark_LDADD += -lshell32
+lib_LTLIBRARIES = audiowmark.la
+audiowmark_la_SOURCES = c-api.cc
+audiowmark_la_CPPFLAGS = $(AM_CPPFLAGS) -DAUDIOWMARK_BUILD
+audiowmark_la_LIBADD = libengine.la $(COMMON_LIBS) $(AUDIOWMARK_SDK_RUNTIME_LIBS)
+audiowmark_la_LDFLAGS = -module -avoid-version -no-undefined -export-symbols-regex '^audiowmark_' $(AUDIOWMARK_SHARED_LDFLAGS)
+SDK_LIB = audiowmark.la
+else
+lib_LTLIBRARIES = libaudiowmark.la
+libaudiowmark_la_SOURCES = c-api.cc
+libaudiowmark_la_CPPFLAGS = $(AM_CPPFLAGS) -DAUDIOWMARK_BUILD
+libaudiowmark_la_LIBADD = libengine.la $(COMMON_LIBS) $(AUDIOWMARK_SDK_RUNTIME_LIBS)
+libaudiowmark_la_LDFLAGS = -version-info 1:0:0 -no-undefined $(AUDIOWMARK_SHARED_LDFLAGS)
+SDK_LIB = libaudiowmark.la
+if COND_ELF
+libaudiowmark_la_LDFLAGS += -Wl,--version-script=$(srcdir)/audiowmark.map -Wl,--as-needed
+EXTRA_libaudiowmark_la_DEPENDENCIES = $(srcdir)/audiowmark.map
+else
+libaudiowmark_la_LDFLAGS += -export-symbols-regex '^audiowmark_'
+endif
 endif
 
-noinst_PROGRAMS = testconvcode testrandom testmp3 teststream testlimiter testshortcode testmpegts testthreadpool \
-		  testrawconverter testwavformat
+noinst_PROGRAMS = testconvcode testrandom testmp3 teststream testlimiter testshortcode testmpegts testthreadpool testrawconverter testwavformat
+testconvcode_SOURCES = testconvcode.cc
+testconvcode_LDADD = libengine.la $(COMMON_LIBS)
+testrandom_SOURCES = testrandom.cc
+testrandom_LDADD = libengine.la $(COMMON_LIBS)
+testmp3_SOURCES = testmp3.cc
+testmp3_LDADD = libengine.la $(COMMON_LIBS)
+teststream_SOURCES = teststream.cc
+teststream_LDADD = libengine.la $(COMMON_LIBS)
+testlimiter_SOURCES = testlimiter.cc
+testlimiter_LDADD = libengine.la $(COMMON_LIBS)
+testshortcode_SOURCES = testshortcode.cc
+testshortcode_LDADD = libengine.la $(COMMON_LIBS)
+testmpegts_SOURCES = testmpegts.cc
+testmpegts_LDADD = libengine.la $(COMMON_LIBS)
+testthreadpool_SOURCES = testthreadpool.cc
+testthreadpool_LDADD = libengine.la $(COMMON_LIBS)
+testrawconverter_SOURCES = testrawconverter.cc
+testrawconverter_LDADD = libengine.la $(COMMON_LIBS)
+testwavformat_SOURCES = testwavformat.cc
+testwavformat_LDADD = libengine.la $(COMMON_LIBS)
 
-testconvcode_SOURCES = testconvcode.cc $(COMMON_SRC)
-testconvcode_LDFLAGS = $(COMMON_LIBS)
-
-testrandom_SOURCES = testrandom.cc $(COMMON_SRC)
-testrandom_LDFLAGS = $(COMMON_LIBS)
-
-testmp3_SOURCES = testmp3.cc $(COMMON_SRC)
-testmp3_LDFLAGS = $(COMMON_LIBS)
-
-teststream_SOURCES = teststream.cc $(COMMON_SRC)
-teststream_LDFLAGS = $(COMMON_LIBS)
-
-testlimiter_SOURCES = testlimiter.cc $(COMMON_SRC)
-testlimiter_LDFLAGS = $(COMMON_LIBS)
-
-testshortcode_SOURCES = testshortcode.cc $(COMMON_SRC)
-testshortcode_LDFLAGS = $(COMMON_LIBS)
-
-testmpegts_SOURCES = testmpegts.cc $(COMMON_SRC)
-testmpegts_LDFLAGS = $(COMMON_LIBS)
-
-testthreadpool_SOURCES = testthreadpool.cc $(COMMON_SRC)
-testthreadpool_LDFLAGS = $(COMMON_LIBS)
-
-testrawconverter_SOURCES = testrawconverter.cc $(COMMON_SRC)
-testrawconverter_LDFLAGS = $(COMMON_LIBS)
-
-testwavformat_SOURCES = testwavformat.cc $(COMMON_SRC)
-testwavformat_LDFLAGS = $(COMMON_LIBS)
-
+check_PROGRAMS = testapi
+TESTS = testapi
+testapi_SOURCES = testapi.cc
+testapi_LDADD = $(SDK_LIB) libengine.la $(COMMON_LIBS)
 if COND_WITH_FFMPEG
-COMMON_SRC += hlsoutputstream.cc hlsoutputstream.hh
-
+libengine_la_SOURCES += hlsoutputstream.cc hlsoutputstream.hh
 noinst_PROGRAMS += testhls
-testhls_SOURCES = testhls.cc $(COMMON_SRC)
-testhls_LDFLAGS = $(COMMON_LIBS)
+testhls_SOURCES = testhls.cc
+testhls_LDADD = libengine.la $(COMMON_LIBS)
 endif
+
+EXTRA_DIST = audiowmark.map
+
+# Remove fixtures from interrupted tests as well as successful test runs.
+clean-local:
+	-rm -rf testapi-[0-9]*
+
+# The C libtool tag omits C++ postdeps when explicit static runtime archives
+# were requested. The C++ compiler still produces every engine object.
+audiowmark_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=$(AUDIOWMARK_SDK_LIBTOOL_TAG) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CXX) $(AM_CXXFLAGS) $(CXXFLAGS) $(audiowmark_la_LDFLAGS) $(LDFLAGS) -o $@
+libaudiowmark_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=$(AUDIOWMARK_SDK_LIBTOOL_TAG) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CXX) $(AM_CXXFLAGS) $(CXXFLAGS) $(libaudiowmark_la_LDFLAGS) $(LDFLAGS) -o $@

@@ -3,7 +3,8 @@
 The four files in this directory contain the default-key payload
 `f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0`. They were generated once from the
 same deterministic 40-second, stereo, 44100 Hz, 16-bit noise WAV. The WAV was
-watermarked before encoding, so each compressed file exercises input decoding.
+watermarked at strength 30 before encoding, so each compressed file exercises
+input decoding.
 
 The watermarking binary was downloaded from the `native-linux-musl-x86_64`
 artifact of successful GitHub Actions run 38918669906. The run HEAD was
@@ -27,13 +28,14 @@ The exact generation and encoding commands were:
 AWM=.context/tools/audiowmark-linux-musl-x86_64/bin/audiowmark
 
 "$AWM" --strict test-gen-noise --bits 16 \
-  .context/fixture-work/noise.wav 40 44100
-"$AWM" --strict add \
-  .context/fixture-work/noise.wav .context/fixture-work/marked.wav \
+  .context/fixture-work-strength30/noise.wav 40 44100
+"$AWM" --strict add --strength 30 \
+  .context/fixture-work-strength30/noise.wav \
+  .context/fixture-work-strength30/marked.wav \
   f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0
 
 sudo install -d .context/images/alpine/fixtures-work
-sudo cp .context/fixture-work/marked.wav \
+sudo cp .context/fixture-work-strength30/marked.wav \
   .context/images/alpine/fixtures-work/marked.wav
 
 sudo chroot .context/images/alpine /usr/bin/ffmpeg \
@@ -68,8 +70,19 @@ fixture from the marked 44100 Hz source. The other encoded fixtures remain at
 44100 Hz. In particular, `marked.flac` is a real FFmpeg-encoded FLAC file; it
 was not produced by naming audiowmark's WAV output with a `.flac` suffix.
 
+Strength 30 is deliberate fixture hardening, not a change to audiowmark's
+default strength of 10. A strength-10 MP3 fixture decoded on the Linux
+generation hosts but failed to recover the exact payload through the macOS 14
+upstream-test decoder path. The stronger synthetic mark leaves more margin for
+codec-decoder and floating-point differences while retaining the same source,
+duration, payload, default key, and encoding settings.
+
 Before the fixtures were added, each file was checked with `ffprobe` and with
-`audiowmark --strict get`. The probe results and SHA-256 checksums are:
+`audiowmark --strict get`. Payload recovery was checked with both the baseline
+binary above and the current host package (`audiowmark 0.6.5`, 11781392 bytes,
+SHA-256
+`2a3a6eb3a1b361758335cb747a87c3c9d4bad653df015a8451e7e98c1a2b0e0b`).
+The validation commands were:
 
 ```sh
 for file in marked.flac marked.mp3 marked.ogg marked.opus; do
@@ -77,25 +90,32 @@ for file in marked.flac marked.mp3 marked.ogg marked.opus; do
     -v error -select_streams a:0 \
     -show_entries stream=codec_name,sample_rate,channels \
     -of default=noprint_wrappers=1 "/fixtures-work/$file"
-  "$AWM" --strict get "tests/data/$file"
+done
+for VERIFY_AWM in \
+  .context/tools/audiowmark-linux-musl-x86_64/bin/audiowmark \
+  .context/host-package/bin/audiowmark
+do
+  for file in marked.flac marked.mp3 marked.ogg marked.opus; do
+    "$VERIFY_AWM" --strict get "tests/data/$file"
+  done
 done
 ```
 
 The intermediate deterministic source WAV SHA-256 was
 `69cbd130b0a176c8f4a9b0c8b7fa127b14d4bbbd3efc32a3602b3a1ac0787a24`;
 the marked WAV SHA-256 was
-`10e8eb599abdd6b151369c474cc4f5569e58f614d8fe4caa5915fef1fe5d8c2a`.
+`e32f39241e9c483a092a6ec0bb7ff1e093857ef140a57af3b0ff26e78e0cc68e`.
 
 | file | ffprobe codec | rate/channels | bytes | sha256 |
 | --- | --- | --- | ---: | --- |
-| `marked.flac` | `flac` | 44100/2 | 7260466 | `da2871f1c33fe0dfa549836d46b1f70a6badcbb9292ce2840450f191a691cfe7` |
-| `marked.mp3` | `mp3` | 44100/2 | 1602917 | `722fea26fc1c301ad03bb42e0eb9b2efbf7aa2955a67aa3c033beda639729f80` |
-| `marked.ogg` | `vorbis` | 44100/2 | 2207519 | `443b18cefd7ff0016a7911a91adc1892b875b65e7439ebdb330b898c18a4d2d3` |
-| `marked.opus` | `opus` | 48000/2 | 1287887 | `1b8c9cc516eb3042e784c1f27b56a9e898ee49c4d2f4ea6dae78af8b1d10dad0` |
+| `marked.flac` | `flac` | 44100/2 | 7191956 | `6a0086aaf58883ba0b07fe6f5e335c411c580fd6d92c2e0f81beac1d9ca23548` |
+| `marked.mp3` | `mp3` | 44100/2 | 1602917 | `0372ece115fabb48a741c15d65ae3bf1826738d48d23240cbddfec43d1c2d63d` |
+| `marked.ogg` | `vorbis` | 44100/2 | 2144465 | `aaf63e8617863761f9d9d3cc4e6a397d9d0c34499f23ff12da7225339b78bbab` |
+| `marked.opus` | `opus` | 48000/2 | 1287887 | `c805780741a9feeec383c9735354237d52d20b3f7f9fab666f68707240b89125` |
 
-For every file, at least one `pattern` line contained the exact payload above.
-No exact pattern count is assumed because the decoder can also report weaker
-candidate patterns.
+For every file and both binaries, at least one `pattern` line contained the
+exact payload above. No exact pattern count is assumed because the decoder can
+also report weaker candidate patterns.
 
 The audio source is wholly synthetic output from audiowmark's deterministic
 noise generator. It contains no third-party recording or associated recording

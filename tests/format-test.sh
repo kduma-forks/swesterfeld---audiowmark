@@ -26,10 +26,13 @@ assert_payload()
   shift 2
 
   output=$(audiowmark get "$@" "$audio_file")
-  printf '%s\n' "$output" | \
+  if ! printf '%s\n' "$output" | \
     awk -v payload="$expected" \
-      '$1 == "pattern" && $3 == payload { found = 1 } END { exit !found }' || \
+      '$1 == "pattern" && $3 == payload { found = 1 } END { exit !found }'
+  then
+    printf '%s\n' "$output" >&2
     die "payload $expected not found in '$audio_file'"
+  fi
 }
 
 # WAV input/output and the default key.

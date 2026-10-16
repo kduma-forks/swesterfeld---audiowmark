@@ -33,8 +33,8 @@ def main():
                 raise ValueError('checkout does not match published release tag')
     else:
         version = '0.0.0-dev.' + sha[:12]
-    data = dict(version=version, sha=sha,
-                tag=tag or '', publish=str(published).lower())
+    data = dict(version=version, nuget_version=version.split('+')[0], sha=sha,
+                tag=tag or '', publish=str(published).lower(), abi=1)
     print(json.dumps(data, indent=2))
     if args.github_output:
         with open(args.github_output, 'a') as output:

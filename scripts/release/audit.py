@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail packaging when an OS floor, architecture or dynamic dependency check fails."""
+"""Fail packaging when an OS floor, private export or dynamic dependency leaks."""
 import argparse
 import pathlib
 import re
@@ -15,8 +15,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--target', required=True)
     parser.add_argument('--binary', type=pathlib.Path, required=True)
+    parser.add_argument('--header', type=pathlib.Path, required=True)
+    parser.add_argument('--kind', choices=['cli','sdk'], required=True)
     args = parser.parse_args()
     binary = str(args.binary)
+    expected = set(re.findall(r'AUDIOWMARK_CALL\s+(audiowmark_\w+)\s*\(', args.header.read_text()))
+    exports = set()
     if args.target.startswith('linux-'):
         machine = output('readelf','-W','-h',binary)
         architecture = 'AArch64' if args.target.endswith('aarch64') else 'Advanced Micro Devices X86-64'
@@ -24,12 +28,27 @@ def main():
         dynamic = output('readelf','-W','-d',binary)
         needed = re.findall(r'\(NEEDED\).*?\[(.*?)\]', dynamic)
         require('TEXTREL' not in dynamic, 'non-PIC relocation in release library')
-        require(not needed, 'Linux CLI must be fully static')
-        require('INTERP' not in output('readelf','-W','-l',binary), 'static CLI has an interpreter')
+        if args.kind == 'cli' and args.target.startswith('linux-musl-'):
+            require(not needed, 'musl CLI must be fully static')
+            require('INTERP' not in output('readelf','-W','-l',binary), 'static CLI has an interpreter')
+        else:
+            allow = {'libc.so.6','libm.so.6','libpthread.so.0','libdl.so.2','librt.so.1',
+                     'ld-linux-x86-64.so.2','ld-linux-aarch64.so.1'} if '-gnu-' in args.target else {
+                     'libc.musl-x86_64.so.1','libc.musl-aarch64.so.1','libc.so'}
+            require(set(needed) <= allow, 'unexpected ELF dependencies: ' + str(needed))
+        if '-gnu-' in args.target:
+            versions = re.findall(r'\bGLIBC_(\d+)\.(\d+)(?:\.(\d+))?', output('readelf','-W','--version-info',binary))
+            require(all(tuple(map(int,(major,minor,patch or '0'))) <= (2,28,0) for major,minor,patch in versions),
+                    'ELF requires glibc newer than 2.28')
+        if args.kind == 'sdk':
+            symbols = output('nm','-D','--defined-only',binary)
+            exports = {line.split()[-1].split('@')[0] for line in symbols.splitlines() if line.split()}
+            exports = {s for s in exports if not s.startswith('AUDIOWMARK_')}
     elif args.target.startswith('macos-'):
         architecture = 'arm64' if args.target.endswith('aarch64') else 'x86_64'
         require(output('lipo','-archs',binary).strip() == architecture, 'Mach-O architecture does not match package target')
         needed = [line.strip().split(' (')[0] for line in output('otool','-L',binary).splitlines()[1:]]
+        if args.kind == 'sdk': needed = needed[1:]
         require(all(p in ('/usr/lib/libSystem.B.dylib','/usr/lib/libc++.1.dylib','/usr/lib/libobjc.A.dylib')
                     or p.startswith('/System/Library/Frameworks/') for p in needed), 'unexpected Mach-O deps: '+str(needed))
         load = output('otool','-l',binary)
@@ -40,6 +59,8 @@ def main():
         for command in deployment:
             match = re.search(r'(?:minos|version)\s+(\d+)\.(\d+)', command)
             require(match is not None and tuple(map(int,match.groups())) == (15,0), 'macOS minimum must be 15.0')
+        if args.kind == 'sdk':
+            exports = {line.split()[-1].removeprefix('_') for line in output('nm','-gU',binary).splitlines() if line.split()}
     else:
         require('architecture: i386:x86-64' in output('objdump','-f',binary), 'PE architecture must be x64')
         pe = output('objdump','-p',binary)
@@ -54,7 +75,15 @@ def main():
         for api in ('GetSystemTimePreciseAsFileTime','GetOverlappedResultEx','SetThreadDescription','WaitOnAddress',
                     'WakeByAddressSingle','WakeByAddressAll','GetTempPath2W'):
             require(not re.search(r'\b'+api+r'\b',pe), 'import requires newer Windows: '+api)
-    print(args.target, 'CLI audit passed; OS dependencies:', ', '.join(needed) or '(static)')
+        if args.kind == 'sdk':
+            table = pe.split('[Ordinal/Name Pointer] Table',1)
+            require(len(table)==2,'missing PE export table')
+            # Binutils 2.47 includes the absolute ordinal and hint before names.
+            names = table[1].split('\n\n',1)[0]
+            exports = set(re.findall(r'^\s*\[\s*\d+\]\s+(?:\+base\[\s*\d+\]\s+[0-9a-fA-F]+\s+)?(\S+)\s*$',names,re.M))
+    if args.kind == 'sdk':
+        require(exports == expected, 'ABI export mismatch; extra='+str(sorted(exports-expected))+' missing='+str(sorted(expected-exports)))
+    print(args.target, args.kind, 'audit passed; OS dependencies:', ', '.join(needed) or '(static)')
 
 if __name__ == '__main__':
     main()

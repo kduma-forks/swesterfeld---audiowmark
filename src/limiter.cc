@@ -16,6 +16,7 @@
  */
 
 #include "limiter.hh"
+#include "wmcommon.hh"
 
 #include <assert.h>
 #include <math.h>
@@ -126,9 +127,9 @@ Limiter::process_block (const float *in, float *out)
 void
 Limiter::debug_scale (float scale)
 {
-  static int debug_scale_samples = 0;
+  static thread_local int debug_scale_samples = 0;
 
-  if (debug_scale_samples % (sample_rate / 1000) == 0)
+  if (!params().quiet && debug_scale_samples % (sample_rate / 1000) == 0)
     printf ("%f %f\n", double (debug_scale_samples) / sample_rate, scale);
 
   debug_scale_samples++;

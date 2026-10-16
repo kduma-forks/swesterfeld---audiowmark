@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ConsumerFramework Condition="'$(ConsumerFramework)' == ''">net8.0</ConsumerFramework>
+    <TargetFramework>$(ConsumerFramework)</TargetFramework>
+    <PlatformTarget Condition="'$(TargetFramework)' == 'net48' or '$(RuntimeIdentifier)' == 'win-x64'">x64</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <AudiowmarkVersion Condition="'$(AudiowmarkVersion)' == ''">0.6.5</AudiowmarkVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <PackageReference Include="Audiowmark" Version="$(AudiowmarkVersion)" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" Condition="'$(TargetFramework)' == 'net48'" />
+  </ItemGroup>
+</Project>

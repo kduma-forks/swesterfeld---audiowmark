@@ -58,6 +58,7 @@ SFInputStream::open (std::function<SNDFILE* (SF_INFO *)> open_func)
 
   SF_INFO sfinfo = { 0, };
 
+  std::unique_lock<std::mutex> metadata_lock(sndfile_metadata_mutex());
   m_sndfile = open_func (&sfinfo);
 
   int error = sf_error (m_sndfile);
@@ -72,6 +73,7 @@ SFInputStream::open (std::function<SNDFILE* (SF_INFO *)> open_func)
       return err;
     }
 
+  metadata_lock.unlock();
   m_n_channels  = sfinfo.channels;
   m_n_frames    = (sfinfo.frames == SF_COUNT_MAX) ? N_FRAMES_UNKNOWN : sfinfo.frames;
   m_sample_rate = sfinfo.samplerate;
@@ -222,7 +224,7 @@ SFInputStream::close()
   if (m_state == State::OPEN)
     {
       assert (m_sndfile);
-      sf_close (m_sndfile);
+      { std::lock_guard<std::mutex> metadata_lock(sndfile_metadata_mutex()); sf_close (m_sndfile); }
 
       m_sndfile = nullptr;
       m_state = State::CLOSED;

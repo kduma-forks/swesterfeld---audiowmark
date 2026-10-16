@@ -1,36 +1,39 @@
-/*
- * Copyright (C) 2020 Stefan Westerfeld
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
-#include <stdio.h>
-#include <unistd.h>
-
+/* Thread-pool synchronization, configuration inheritance and exception regressions. */
 #include "threadpool.hh"
+#include <atomic>
+#include <stdexcept>
+#include <iostream>
 
-int
-main()
-{
-  ThreadPool tp;
-
-  int result1 = 0;
-  int result2 = 0;
-  tp.add_job ([&result1](){printf ("A\n"); sleep (2); printf ("A done\n"); result1 = 123;});
-  tp.add_job ([&result2](){printf ("B\n"); sleep (3); printf ("B done\n"); result2 = 456;});
-
-  tp.wait_all();
-  printf ("===\n");
-  printf ("results: %d, %d\n", result1, result2);
+static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+int main() {
+  try {
+    EngineConfig config; config.workers = 2; config.water_delta = .023; config.quiet = true;
+    ConfigScope scope(config);
+    std::atomic<unsigned> done{0};
+    {
+      ThreadPool pool;
+      check(pool.n_threads() == 2, "worker limit");
+      for (unsigned round = 0; round < 20; ++round) {
+        for (unsigned i = 0; i < 40; ++i) pool.add_job([&] {
+          check(params().water_delta == .023 && params().quiet && params().workers == 2, "worker config snapshot");
+          ++done;
+        });
+        pool.wait_all();
+      }
+      pool.add_job([] { throw std::runtime_error("expected worker failure"); });
+      pool.add_job([&] { ++done; });
+      bool caught = false;
+      try { pool.wait_all(); } catch (const std::runtime_error&) { caught = true; }
+      check(caught && done == 801, "worker exception propagated after drain");
+      pool.add_job([&] { ++done; }); pool.wait_all();
+      check(done == 802, "pool recovers after worker failure");
+    }
+    {
+      ThreadPool pool;
+      for (unsigned i = 0; i < 50; ++i) pool.add_job([&] { ++done; });
+      // Destructor drains safely without explicit wait_all, including unwinding.
+    }
+    check(done == 852, "destructor drains jobs");
+    std::cout << "Thread-pool regressions passed\n";
+  } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

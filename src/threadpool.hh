@@ -19,6 +19,9 @@
 #define AUDIOWMARK_THREAD_POOL_HH
 
 #include <vector>
+#include <deque>
+#include <exception>
+#include "wmcommon.hh"
 #include <thread>
 #include <functional>
 #include <set>
@@ -37,7 +40,9 @@ class ThreadPool
   std::mutex                mutex;
   std::condition_variable   cond;
   std::condition_variable   main_cond;
-  std::vector<Job>          jobs;
+  std::deque<Job>           jobs;
+  std::exception_ptr        failure;
+  EngineConfig              config;
   size_t                    jobs_added = 0;
   size_t                    jobs_done = 0;
   bool                      stop_workers = false;
@@ -55,4 +60,11 @@ public:
   size_t n_threads();
 };
 
+// Use when queued jobs capture locals whose lifetime ends before the pool.
+class PoolDrain {
+  ThreadPool& pool;
+public:
+  explicit PoolDrain(ThreadPool& pool) : pool(pool) {}
+  ~PoolDrain() { try { pool.wait_all(); } catch (...) {} }
+};
 #endif /* AUDIOWMARK_THREAD_POOL_HH */

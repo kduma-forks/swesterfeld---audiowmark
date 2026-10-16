@@ -24,38 +24,6 @@ using std::string;
 using std::vector;
 using std::complex;
 
-int    Params::frames_per_bit  = 2;
-double Params::water_delta     = 0.01;
-bool   Params::mix             = true;
-bool   Params::hard            = false; // hard decode bits? (soft decoding is better)
-bool   Params::snr             = false; // compute/show snr while adding watermark
-bool   Params::strict          = false;
-bool   Params::detect_speed    = false;
-bool   Params::detect_speed_patient = false;
-double Params::try_speed       = -1;
-double Params::test_speed      = -1;
-double Params::sync_threshold2 = 0.35;
-int    Params::get_n_best      = 8;
-size_t Params::payload_size    = 128;
-bool   Params::payload_short   = false;
-int    Params::test_cut        = 0; // for sync test
-bool   Params::test_no_sync    = false; // disable sync
-bool   Params::test_no_limiter = false; // disable limiter
-int    Params::test_truncate   = 0;
-int    Params::expect_matches  = -1;
-double Params::get_chunk_size  = 30;
-
-Format Params::input_format     = Format::AUTO;
-Format Params::output_format    = Format::AUTO;
-
-RawFormat Params::raw_input_format;
-RawFormat Params::raw_output_format;
-
-int    Params::hls_bit_rate = 0;
-
-string Params::json_output;
-string Params::input_label;
-string Params::output_label;
 
 FFTAnalyzer::FFTAnalyzer (int n_channels) :
   m_n_channels (n_channels),
@@ -167,7 +135,7 @@ BitPosGen::data_frame (int f)
 size_t
 mark_data_frame_count()
 {
-  return code_size (ConvBlockType::a, Params::payload_size) * Params::frames_per_bit;
+  return code_size (ConvBlockType::a, params().payload_size) * params().frames_per_bit;
 }
 
 size_t
@@ -216,23 +184,31 @@ parse_payload (const string& bits)
       error ("audiowmark: cannot parse bits '%s'\n", bits.c_str());
       return {};
     }
-  if ((Params::payload_short || Params::strict) && bitvec.size() != Params::payload_size)
+  if ((params().payload_short || params().strict) && bitvec.size() != params().payload_size)
     {
-      error ("audiowmark: number of message bits must match payload size (%zd bits)\n", Params::payload_size);
+      error ("audiowmark: number of message bits must match payload size (%zd bits)\n", params().payload_size);
       return {};
     }
-  if (bitvec.size() > Params::payload_size)
+  if (bitvec.size() > params().payload_size)
     {
       error ("audiowmark: number of bits in message '%s' larger than payload size\n", bits.c_str());
       return {};
     }
-  if (bitvec.size() < Params::payload_size)
+  if (bitvec.size() < params().payload_size)
     {
       /* expand message automatically; good for testing, not so good in production (disabled by --strict) */
       vector<int> expanded_bitvec;
-      for (size_t i = 0; i < Params::payload_size; i++)
+      for (size_t i = 0; i < params().payload_size; i++)
         expanded_bitvec.push_back (bitvec[i % bitvec.size()]);
       bitvec = expanded_bitvec;
     }
   return bitvec;
 }
+
+namespace {
+thread_local EngineConfig default_config;
+thread_local EngineConfig *active_config = &default_config;
+}
+EngineConfig& params() { return *active_config; }
+ConfigScope::ConfigScope(EngineConfig& config) : previous(active_config) { active_config = &config; }
+ConfigScope::~ConfigScope() { active_config = previous; }

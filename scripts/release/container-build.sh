@@ -19,7 +19,7 @@ docker run --rm --network host -v "$ROOT:/work" -w /work -e TARGET -e VERSION -e
  bash scripts/release/build.sh
  python3 scripts/release/unpack.py --artifacts dist --native .release/unpacked --cli .release/unpacked-cli
  if [ "${TARGET#linux-musl-}" != "$TARGET" ]; then
-   python3 scripts/release/smoke.py --sdk ".release/unpacked/$TARGET" --cli ".release/unpacked-cli/$TARGET/bin/audiowmark"
+   python3 scripts/release/smoke.py --sdk ".release/unpacked/$TARGET" --cli ".release/unpacked-cli/$TARGET/bin/audiowmark" --fixtures tests/data
  else
    python3 scripts/release/smoke.py --sdk ".release/unpacked/$TARGET"
  fi'

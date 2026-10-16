@@ -68,21 +68,42 @@ The SDK unpack script restores them to `native/TARGET/`, the common bindings
 packaging interface. [The C API documentation](api.md) describes ownership,
 threading and ABI rules.
 
-Each native package build runs `make check`, audits OS imports/deployment versions and
-exports, then tests extracted packages from an unrelated directory. Consumer
-jobs use the actual `.crate` and local NuGet package feed with Rust 1.77.2 and
-.NET 8. Windows additionally exercises net48. Alpine Rust consumers use `RUSTFLAGS=-Ctarget-feature=-crt-static`: a musl
-application loading the shared SDK must use the dynamic musl runtime. The CLI
-remains fully static. Alpine consumers run on musl;
-glibc SDKs are built and loaded in the pinned manylinux glibc-2.28 environment.
-Linux static CLIs are also run without builder audio libraries. Dependency
-prefix caches are separated by target, compiler/image identity, source lock,
-recipe and patch hashes.
+Each native package build runs the complete `make check` CLI regression suite,
+audits native binary OS imports, architecture, runtime/deployment versions, and
+SDK exports, then tests extracted packages from an unrelated directory. The
+WAV test is a single `add`/`get` round trip; the unconditional RAW round trip
+uses two `add` calls with two keys and two payloads. Format coverage decodes the
+real prerecorded synthetic `marked.flac`, `marked.mp3`, `marked.ogg` (Vorbis),
+and `marked.opus` fixtures without FFmpeg or Python. Release builds continue to
+exclude FFmpeg, HLS, and `videowmark`.
+
+The extracted CLI smoke runs from an unrelated temporary working directory and
+adds direct `get`, both JSON output modes fully parsed for validation, exact
+payloads, Unicode key names and paths, binary stdin/stdout checks, and all four
+fixture codecs. The required fixture directory comes from the checkout's
+`tests/data` directory; for example:
+
+```sh
+python3 scripts/release/smoke.py \
+  --cli .release/unpacked-cli/$TARGET/bin/audiowmark \
+  --fixtures tests/data
+```
+
+Consumer jobs use the actual `.crate` and local NuGet package feed with Rust
+1.77.2 and .NET 8. Windows additionally exercises net48. Alpine Rust consumers
+use `RUSTFLAGS=-Ctarget-feature=-crt-static`: a musl application loading the
+shared SDK must use the dynamic musl runtime. The CLI remains fully static.
+Alpine consumers run on musl; glibc SDKs are built and loaded in the pinned
+manylinux glibc-2.28 environment. Linux static CLIs are also run in clean
+containers without builder audio libraries; those containers mount only the
+extracted SDK/CLI packages, smoke script, and CLI fixtures. Dependency prefix
+caches are separated by target, compiler/image identity, source lock, recipe
+and patch hashes.
 
 Separate ASan/UBSan and TSan builds run the instrumented C API suite and
 thread-pool regressions explicitly, including parallel contexts, key and
 buffer ownership, worker exceptions and shutdown. ASan leak detection stays
-enabled. The seven normal native builds retain the full CLI regression suite.
+enabled. The seven normal native builds run the full CLI regression suite.
 
 Check downloaded assets before use:
 
@@ -107,6 +128,9 @@ Linux entry point chooses pinned Alpine/manylinux images from
 export TARGET=linux-musl-x86_64 VERSION=1.2.3
 scripts/release/container-build.sh
 ```
+
+The Linux smoke commands above use `tests/data` from the checkout; clean
+container smoke receives the same directory as `/fixtures`.
 
 On macOS or in the MINGW64 shell on Windows:
 

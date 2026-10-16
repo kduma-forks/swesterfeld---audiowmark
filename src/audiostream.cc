@@ -36,7 +36,7 @@ AudioInputStream::create (const string& filename, Error& err)
 {
   std::unique_ptr<AudioInputStream> in_stream;
 
-  if (Params::input_format == Format::AUTO)
+  if (params().input_format == Format::AUTO)
     {
       SFInputStream *sistream = new SFInputStream();
       in_stream.reset (sistream);
@@ -53,16 +53,16 @@ AudioInputStream::create (const string& filename, Error& err)
       else if (err)
         return nullptr;
     }
-  else if (Params::input_format == Format::RAW)
+  else if (params().input_format == Format::RAW)
     {
       RawInputStream *ristream = new RawInputStream();
       in_stream.reset (ristream);
 
-      err = ristream->open (filename, Params::raw_input_format);
+      err = ristream->open (filename, params().raw_input_format);
       if (err)
         return nullptr;
     }
-  else if (Params::input_format == Format::WAV_PIPE)
+  else if (params().input_format == Format::WAV_PIPE)
     {
       WavPipeInputStream *wistream = new WavPipeInputStream();
       in_stream.reset (wistream);
@@ -84,17 +84,17 @@ AudioOutputStream::create (const string& filename, int n_channels, int sample_ra
 {
   std::unique_ptr<AudioOutputStream> out_stream;
 
-  if (Params::output_format == Format::RAW)
+  if (params().output_format == Format::RAW)
     {
       RawOutputStream *rostream = new RawOutputStream();
       out_stream.reset (rostream);
-      err = rostream->open (filename, Params::raw_output_format);
+      err = rostream->open (filename, params().raw_output_format);
       if (err)
         return nullptr;
     }
   else if (filename == "-")
     {
-      bool wav_pipe = Params::output_format == Format::WAV_PIPE;
+      bool wav_pipe = params().output_format == Format::WAV_PIPE;
 
       StdoutWavOutputStream *swstream = new StdoutWavOutputStream();
       out_stream.reset (swstream);
@@ -106,7 +106,7 @@ AudioOutputStream::create (const string& filename, int n_channels, int sample_ra
     {
       SFOutputStream::OutFormat out_format;
 
-      if (Params::output_format == Format::RF64)
+      if (params().output_format == Format::RF64)
         out_format = SFOutputStream::OutFormat::RF64;
       else
         out_format = SFOutputStream::OutFormat::WAV;

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <PackageId>Audiowmark</PackageId>
+    <!-- Windows filenames are case insensitive: keep this distinct from audiowmark.dll. -->
+    <AssemblyName>Audiowmark.Managed</AssemblyName>
+    <Version Condition="'$(Version)' == ''">0.6.5</Version>
+    <Authors>Stefan Westerfeld and contributors</Authors>
+    <Description>Managed bindings and native libraries for audiowmark ABI 1.</Description>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/kduma-forks/swesterfeld---audiowmark</RepositoryUrl>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="LICENSE" Pack="true" PackagePath="/" />
+    <None Include="buildTransitive/Audiowmark.targets" Pack="true" PackagePath="buildTransitive/" />
+    <None Include="buildTransitive/Audiowmark.targets" Pack="true" PackagePath="build/" />
+    <None Include="$(NativeLicensesDir)/**/*" Condition="'$(NativeLicensesDir)' != ''" Pack="true" PackagePath="licenses/" />
+    <None Include="$(NativeAssetsDir)/**/*" Condition="'$(NativeAssetsDir)' != ''" Pack="true" PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

@@ -1,14 +1,33 @@
 #!/usr/bin/env bash
-# Mount only the extracted CLI, smoke script, and fixture data; the repository and builder libraries are inaccessible.
+# Mount only extracted SDK/CLI packages, the smoke script, and CLI fixtures; the repository and builder prefix stay inaccessible.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 : "${TARGET:?}"
-[[ $TARGET == linux-musl-* ]] || { echo 'container-smoke requires a Linux musl CLI target' >&2; exit 1; }
-CLI_DIR="$ROOT/.release/unpacked-cli/$TARGET"
-# Run each fully static CLI on both musl and glibc, without audio libraries.
-for image_key in alpine ubuntu; do
- image=$(python3 -c 'import json,sys; print(json.load(open("scripts/release/images.lock.json"))[sys.argv[1]])' "$image_key")
- docker run --rm --network host -v "$CLI_DIR:/cli:ro" -v "$ROOT/scripts/release/smoke.py:/smoke.py:ro" -v "$ROOT/tests/data:/fixtures:ro" "$image" sh -ec '
-  if command -v apk >/dev/null; then apk add --no-cache python3; else apt-get update && apt-get install -y --no-install-recommends python3; fi
-  python3 /smoke.py --cli /cli/bin/audiowmark --fixtures /fixtures'
-done
+SDK_DIR="$ROOT/.release/unpacked/$TARGET"
+CLI_TARGET=${TARGET/linux-gnu-/linux-musl-}
+CLI_DIR="$ROOT/.release/unpacked-cli/$CLI_TARGET"
+image_key=ubuntu
+[[ $TARGET != linux-musl-* ]] || image_key=alpine
+image=$(python3 -c 'import json,sys; print(json.load(open("scripts/release/images.lock.json"))[sys.argv[1]])' "$image_key")
+mounts=(-v "$SDK_DIR:/sdk:ro" -v "$ROOT/scripts/release/smoke.py:/smoke.py:ro")
+smoke_args=(--sdk /sdk)
+if [[ -d $CLI_DIR ]]; then
+  mounts+=(-v "$CLI_DIR:/cli:ro" -v "$ROOT/tests/data:/fixtures:ro")
+  smoke_args+=(--cli /cli/bin/audiowmark --fixtures /fixtures)
+fi
+docker run --rm --network host "${mounts[@]}" "$image" sh -ec '
+ if command -v apk >/dev/null; then apk add --no-cache python3; else apt-get update && apt-get install -y --no-install-recommends python3; fi
+ python3 /smoke.py "$@"' smoke "${smoke_args[@]}"
+
+# A musl CLI must also pass the full smoke suite on glibc Ubuntu, without the
+# SDK, repository, builder prefix, or audio-library installations.
+if [[ $TARGET == linux-musl-* ]]; then
+ ubuntu=$(python3 -c 'import json; print(json.load(open("scripts/release/images.lock.json"))["ubuntu"])')
+ docker run --rm --network host \
+   -v "$CLI_DIR:/cli:ro" \
+   -v "$ROOT/scripts/release/smoke.py:/smoke.py:ro" \
+   -v "$ROOT/tests/data:/fixtures:ro" \
+   "$ubuntu" sh -ec '
+   apt-get update && apt-get install -y --no-install-recommends python3
+   python3 /smoke.py --cli /cli/bin/audiowmark --fixtures /fixtures'
+fi

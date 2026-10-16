@@ -43,6 +43,8 @@ public:
 
   void set_test_key (uint64_t key);
   void load_key (const std::string& filename);
+  void import_text(const std::string& text, const std::string& default_name = "");
+  std::string export_text() const;
   const unsigned char *aes_key() const;
   const std::string& name() const;
 };

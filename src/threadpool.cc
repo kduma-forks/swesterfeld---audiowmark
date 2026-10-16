@@ -21,94 +21,65 @@
 bool
 ThreadPool::worker_next_job (Job& job)
 {
-  std::unique_lock<std::mutex> lck (mutex);
-
-  if (stop_workers)
-    return false;
-
-  if (jobs.empty())
-    cond.wait (lck);
-
-  if (jobs.empty())
-    return false;
-
-  job = jobs.front();
-  jobs.erase (jobs.begin());
+  std::unique_lock<std::mutex> lock(mutex);
+  cond.wait(lock, [&] { return stop_workers || !jobs.empty(); });
+  if (jobs.empty()) return false;
+  job = std::move(jobs.front());
+  jobs.pop_front();
   return true;
 }
-
-void
-ThreadPool::worker_run()
+void ThreadPool::worker_run()
 {
-  while (!stop_workers)
-    {
-      Job job;
-      if (worker_next_job (job))
-        {
-          job.fun();
-
-          std::lock_guard<std::mutex> lg (mutex);
-          jobs_done++;
-
-          main_cond.notify_one();
-        }
-    }
-}
-
-ThreadPool::ThreadPool()
-{
-  for (unsigned int i = 0; i < std::thread::hardware_concurrency(); i++)
-    {
-      threads.push_back (std::thread (&ThreadPool::worker_run, this));
-    }
-}
-
-void
-ThreadPool::add_job (std::function<void()> fun)
-{
-  std::lock_guard<std::mutex> lg (mutex);
+  ConfigScope scope(config);
   Job job;
-  job.fun = fun;
-  jobs.push_back (job);
-  jobs_added++;
-
+  while (worker_next_job(job)) {
+    try { job.fun(); }
+    catch (...) {
+      std::lock_guard<std::mutex> lock(mutex);
+      if (!failure) failure = std::current_exception();
+    }
+    job.fun = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      ++jobs_done;
+    }
+    main_cond.notify_all();
+  }
+}
+ThreadPool::ThreadPool() : config(params())
+{
+  unsigned count = config.workers ? config.workers : std::max(1u, std::thread::hardware_concurrency());
+  try {
+    for (unsigned i = 0; i < count; ++i)
+      threads.emplace_back(&ThreadPool::worker_run, this);
+  } catch (...) {
+    { std::lock_guard<std::mutex> lock(mutex); stop_workers = true; }
+    cond.notify_all();
+    for (auto& thread : threads) thread.join();
+    throw;
+  }
+}
+void ThreadPool::add_job (std::function<void()> fun)
+{
+  std::lock_guard<std::mutex> lock(mutex);
+  jobs.push_back(Job{std::move(fun)});
+  ++jobs_added;
   cond.notify_one();
 }
-
-void
-ThreadPool::wait_all()
+void ThreadPool::wait_all()
 {
-  for (;;)
-    {
-      std::unique_lock<std::mutex> lck (mutex);
-
-      if (jobs_added == jobs_done)
-        return;
-
-      main_cond.wait (lck);
-    }
+  std::unique_lock<std::mutex> lock(mutex);
+  main_cond.wait(lock, [&] { return jobs_added == jobs_done; });
+  auto exception = failure;
+  failure = nullptr;
+  lock.unlock();
+  if (exception) std::rethrow_exception(exception);
 }
-
-size_t
-ThreadPool::n_threads()
-{
-  return threads.size();
-}
-
+size_t ThreadPool::n_threads() { return threads.size(); }
 ThreadPool::~ThreadPool()
 {
-  {
-    std::lock_guard<std::mutex> lg (mutex);
-    stop_workers = true;
-    cond.notify_all();
-  }
-
-  for (auto& t : threads)
-    t.join();
-
-  if (jobs_added != jobs_done)
-    {
-      // user must wait before deleting the ThreadPool
-      error ("audiowmark: open jobs in ThreadPool::~ThreadPool() [added=%zd, done=%zd] - this should not happen\n", jobs_added, jobs_done);
-    }
+  // Drain jobs before joining, including during exception unwinding.
+  { std::lock_guard<std::mutex> lock(mutex); stop_workers = true; }
+  cond.notify_all();
+  for (auto& thread : threads) thread.join();
 }

@@ -43,7 +43,7 @@ normalize_soft_bits (const vector<float>& soft_bits)
   vector<float> norm_soft_bits;
 
   /* soft decoding produces better error correction than hard decoding */
-  if (Params::hard)
+  if (params().hard)
     {
       for (auto value : soft_bits)
         norm_soft_bits.push_back (value > 0 ? 1.0 : 0.0);
@@ -54,7 +54,10 @@ normalize_soft_bits (const vector<float>& soft_bits)
       double mean = 0;
       for (auto value : soft_bits)
         mean += fabs (value);
+      if (soft_bits.empty()) return {};
       mean /= soft_bits.size();
+      // Zero-energy data carries no evidence for either bit. Avoid 0/0 NaNs.
+      if (mean == 0) return vector<float>(soft_bits.size(), 0.5f);
 
       /* rescale from [-mean,+mean] to [0.0,1.0] */
       for (auto value : soft_bits)
@@ -97,7 +100,7 @@ mix_decode (const Key& key, vector<vector<complex<float>>>& fft_out, int n_chann
               dmag -= (db_from_complex (fft_out[prev_index][d], min_db) + db_from_complex (fft_out[next_index][d], min_db)) * 0.5;
             }
         }
-      if ((f % Params::frames_per_bit) == (Params::frames_per_bit - 1))
+      if ((f % params().frames_per_bit) == (params().frames_per_bit - 1))
         {
           raw_bit_vec.push_back (umag - dmag);
           umag = 0;
@@ -141,7 +144,7 @@ linear_decode (const Key& key, vector<vector<complex<float>>>& fft_out, int n_ch
               dmag -= 0.5 * (db_from_complex (fft_out[prev_index][d], min_db) + db_from_complex (fft_out[next_index][d], min_db));
             }
         }
-      if ((f % Params::frames_per_bit) == (Params::frames_per_bit - 1))
+      if ((f % params().frames_per_bit) == (params().frames_per_bit - 1))
         {
           raw_bit_vec.push_back (umag - dmag);
           umag = 0;
@@ -154,7 +157,7 @@ linear_decode (const Key& key, vector<vector<complex<float>>>& fft_out, int n_ch
 static vector<float>
 mix_or_linear_decode (const Key& key, vector<vector<complex<float>>>& fft_out, int n_channels)
 {
-  if (Params::mix)
+  if (params().mix)
     return mix_decode (key, fft_out, n_channels);
   else
     return linear_decode (key, fft_out, n_channels);
@@ -318,7 +321,7 @@ public:
   json_escape (const string& s)
   {
     string result;
-    for (unsigned ch : s)
+    for (unsigned char ch : s)
       {
         if (ch == '"' || ch == '\\')
           {
@@ -336,14 +339,34 @@ public:
       }
     return result;
   }
+  std::vector<EngineDetection> export_patterns(const vector<Key>& keys) const
+  {
+    std::vector<EngineDetection> result;
+    for (const auto& p : patterns) {
+      EngineDetection d;
+      d.bits = p.bit_vec;
+      d.key_index = 0;
+      for (size_t i = 0; i < keys.size(); ++i) if (keys[i] == p.key) { d.key_index = i; break; }
+      d.key_name = p.key.name();
+      d.block_type = p.sync_score.block_type == ConvBlockType::a ? 1 : p.sync_score.block_type == ConvBlockType::b ? 2 : 3;
+      if (p.type == Type::ALL) d.block_type = 4;
+      else if (p.type == Type::CLIP) d.block_type += 4;
+      d.time = p.type == Type::ALL ? -1 : p.time;
+      d.quality = p.sync_score.quality;
+      d.decode_error = p.decode_error;
+      d.ranking = p.rating;
+      d.speed = p.speed;
+      result.push_back(std::move(d));
+    }
+    return result;
+  }
   void
   print_json (size_t time_length, const std::string &json_file)
   {
-    FILE *outfile = json_file == "-" ? stdout : utf8_fopen (json_file, "wb");
+    FILE *outfile = json_file == "-" ? stdout : utf8_fopen(json_file, "wb");
     if (!outfile)
       {
-        perror (("audiowmark: failed to open \"" + json_file + "\":").c_str());
-        exit (127);
+        throw EngineError("Cannot open JSON output: " + json_file);
       }
     fprintf (outfile, "{ \"length\": \"%zu:%02zu\",\n", time_length / 60, time_length % 60);
     fprintf (outfile, "  \"matches\": [\n");
@@ -378,10 +401,8 @@ public:
                  pattern.speed);
       }
     fprintf (outfile, " ]\n}\n");
-    if (outfile == stdout)
-      fflush (outfile);
-    else
-      fclose (outfile);
+    if (outfile != stdout) fclose (outfile);
+    else fflush(outfile);
   }
   void
   print()
@@ -505,10 +526,10 @@ public:
   void
   run (const vector<Key>& key_list, const WavData& wav_data, ResultSet& result_set)
   {
-    ThreadPool thread_pool;
     SyncFinder sync_finder;
     FFTAnalyzer fft_analyzer (wav_data.n_channels());
     key_results = sync_finder.search (key_list, wav_data, SyncFinder::Mode::BLOCK);
+    ThreadPool thread_pool;
 
     for (const auto& key_result : key_results)
       {
@@ -531,7 +552,7 @@ public:
               {
                 /* ---- retrieve bits from watermark ---- */
                 vector<float> raw_bit_vec = mix_or_linear_decode (key, fft_range_out, wav_data.n_channels());
-                assert (raw_bit_vec.size() == code_size (ConvBlockType::a, Params::payload_size));
+                assert (raw_bit_vec.size() == code_size (ConvBlockType::a, params().payload_size));
 
                 raw_bit_vec = randomize_bit_order (key, raw_bit_vec, /* encode */ false);
 
@@ -611,7 +632,7 @@ public:
         for (size_t i = 0; i < pattern_raw_vec.size(); i++)
           {
             size_t count = mark_sync_frame_count() + mark_data_frame_count();
-            size_t max_block_idx = lrint (pattern_raw_vec.back().index / double (count * Params::frame_size) + 0.5);
+            size_t max_block_idx = llround (pattern_raw_vec.back().index / double (count * Params::frame_size) + 0.5);
 
             vector<size_t> all_blocks;
             all_blocks.push_back (i);
@@ -665,7 +686,7 @@ public:
         /* all pattern: average the A / B bits of the consecutive blocks for an "all" pattern */
         if (best_all_blocks.size() > 1)
           {
-            vector<float> raw_bit_vec_all (code_size (ConvBlockType::ab, Params::payload_size));
+            vector<float> raw_bit_vec_all (code_size (ConvBlockType::ab, params().payload_size));
             vector<int>   raw_bit_vec_norm (2);
 
             SyncFinder::Score score_all { 0, 0 };
@@ -726,7 +747,7 @@ public:
       {
         for (auto sync_score : sync_scores)
           {
-            if (abs (int (sync_score.index + Params::test_cut) - expect_index) < Params::frame_size / 2)
+            if (abs (int (sync_score.index + params().test_cut) - expect_index) < Params::frame_size / 2)
               {
                 sync_match++;
                 break;
@@ -898,10 +919,10 @@ decode (ResultSet& result_set, const vector<Key>& key_list, const WavData& wav_d
    * The reason to do it this way is that the detected speed may be wrong (on short clips)
    * and we don't want to loose a successful clip decoder match in this case.
    */
-  if (Params::detect_speed || Params::detect_speed_patient || Params::try_speed > 0)
+  if (params().detect_speed || params().detect_speed_patient || params().try_speed > 0)
     {
       vector<DetectSpeedResult> speed_results;
-      if (Params::detect_speed || Params::detect_speed_patient)
+      if (params().detect_speed || params().detect_speed_patient)
         speed_results = detect_speed (key_list, wav_data, !orig_bits.empty());
       else
         {
@@ -909,7 +930,7 @@ decode (ResultSet& result_set, const vector<Key>& key_list, const WavData& wav_d
             {
               DetectSpeedResult speed_result;
               speed_result.key   = key;
-              speed_result.speed = Params::try_speed;
+              speed_result.speed = params().try_speed;
               speed_results.push_back (speed_result);
             }
         }
@@ -944,10 +965,10 @@ decode (ResultSet& result_set, const vector<Key>& key_list, const WavData& wav_d
 int
 report (ResultSet& result_set, size_t time_length, const vector<int>& orig_bits)
 {
-  if (!Params::json_output.empty())
-    result_set.print_json (time_length, Params::json_output);
+  if (!params().json_output.empty())
+    result_set.print_json (time_length, params().json_output);
 
-  if (Params::json_output != "-")
+  if (params().json_output != "-")
     result_set.print();
 
   if (!orig_bits.empty())
@@ -956,10 +977,10 @@ report (ResultSet& result_set, size_t time_length, const vector<int>& orig_bits)
 
       result_set.print_debug_sync();
 
-      if (Params::expect_matches >= 0)
+      if (params().expect_matches >= 0)
         {
-          printf ("expect_matches %d\n", Params::expect_matches);
-          if (match_count != Params::expect_matches)
+          printf ("expect_matches %d\n", params().expect_matches);
+          if (match_count != params().expect_matches)
             return 1;
         }
       else
@@ -1011,6 +1032,28 @@ get_watermark (const vector<Key>& key_list, const string& infile, const string& 
     }
   result_set.sort (key_list);
 
-  size_t time_length = lrint (wav_chunk_loader.length());
+  size_t time_length = llround (wav_chunk_loader.length());
   return report (result_set, time_length, orig_bitvec);
+}
+
+std::vector<EngineDetection> detect_watermark(const std::vector<Key>& keys, std::unique_ptr<AudioInputStream> stream)
+{
+  ResultSet result_set;
+  WavChunkLoader loader(std::move(stream));
+  bool first = true;
+  while (!loader.done()) {
+    Error err = loader.load_next_chunk();
+    if (err) throw EngineError(err.message());
+    if (!loader.done()) {
+      ResultSet chunk;
+      const auto& samples = loader.wav_data().samples();
+      if (std::any_of(samples.begin(), samples.end(), [](float sample) { return sample != 0; }))
+        decode(chunk, keys, loader.wav_data(), {}, first);
+      chunk.apply_time_offset(loader.time_offset());
+      result_set.merge(chunk);
+      first = false;
+    }
+  }
+  result_set.sort(keys);
+  return result_set.export_patterns(keys);
 }

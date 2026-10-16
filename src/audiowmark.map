@@ -1,0 +1,4 @@
+{
+  global: audiowmark_*;
+  local: *;
+};

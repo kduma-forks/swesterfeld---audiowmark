@@ -1,0 +1,13 @@
+[package]
+name = "audiowmark"
+version = "0.6.5"
+edition = "2021"
+rust-version = "1.77.2"
+description = "Safe dynamically loaded bindings for the audiowmark ABI 1 audio watermarking SDK"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/kduma-forks/swesterfeld---audiowmark"
+readme = "README.md"
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
+
+[dependencies]
+libloading = "=0.8.6"

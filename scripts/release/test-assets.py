@@ -22,8 +22,11 @@ HERE = pathlib.Path(__file__).resolve().parent
 CHECK = HERE / 'check-assets.py'
 UNPACK = HERE / 'unpack.py'
 CLI_TARGETS = ('win7-x86_64', 'linux-musl-x86_64', 'linux-musl-aarch64', 'macos-x86_64', 'macos-aarch64')
+GNU_TARGETS = ('linux-gnu-x86_64', 'linux-gnu-aarch64')
+SDK_TARGETS = CLI_TARGETS + GNU_TARGETS
 TOOLS = {'cli': ('audiowmark',), 'full': ('audiowmark', 'videowmark', 'ffmpeg', 'ffprobe')}
 VERSION = '1.2.3-test.1'
+NUGET = '1.2.3-test.1'
 COMMIT = '0123456789abcdef0123456789abcdef01234567'
 # Literal copy of the configure options in build-ffmpeg.sh, independent of the gate's constant.
 FFMPEG_FLAGS = ('--disable-autodetect --disable-network --disable-hwaccels --disable-avdevice --disable-indevs '
@@ -33,6 +36,10 @@ FFMPEG_FLAGS = ('--disable-autodetect --disable-network --disable-hwaccels --dis
 REAL_BUILDCONF_FILE = HERE / 'testdata' / 'ffmpeg-7.1.5-buildconf.json'
 REAL_BUILDCONF = json.loads(REAL_BUILDCONF_FILE.read_text())['ffmpeg_buildconf']  # captured from a real package
 REAL_VERSION = 'ffmpeg version 7.1.5 Copyright (c) 2000-2026 the FFmpeg developers'
+RIDS = {'win7-x86_64': ('win-x64', 'audiowmark.dll'), 'linux-gnu-x86_64': ('linux-x64', 'libaudiowmark.so'),
+        'linux-gnu-aarch64': ('linux-arm64', 'libaudiowmark.so'), 'linux-musl-x86_64': ('linux-musl-x64', 'libaudiowmark.so'),
+        'linux-musl-aarch64': ('linux-musl-arm64', 'libaudiowmark.so'), 'macos-x86_64': ('osx-x64', 'libaudiowmark.dylib'),
+        'macos-aarch64': ('osx-arm64', 'libaudiowmark.dylib')}
 
 def load_checks():
     spec = importlib.util.spec_from_file_location('check_assets', CHECK)
@@ -70,14 +77,24 @@ def fake_manifest(variant='cli'):
 def package_name(variant, target, version=VERSION):
     return f'audiowmark-{version}-{variant}-{target}' + ('.zip' if target.startswith('win7-') else '.tar.gz')
 
-def expected_names(version=VERSION):
+def core_names(version=VERSION):
     names = [package_name(variant, target, version) for variant in TOOLS for target in CLI_TARGETS]
     return names + [f'audiowmark-{version}-source.tar.gz', f'audiowmark-{version}-licenses.tar.gz',
                     f'audiowmark-{version}-docs.pdf', f'audiowmark-{version}-docs.html']
 
+def sdk_names(version=VERSION, nuget=NUGET):
+    return [package_name('sdk', target, version) for target in SDK_TARGETS] + [
+        f'audiowmark-{version}.crate', f'Audiowmark.{nuget}.nupkg']
+
+def expected_names(version=VERSION, nuget=None):
+    return core_names(version) + (sdk_names(version, nuget) if nuget else [])
+
 def write_archive(path, members):
-    """members: (name, bytes, mode). Zip members carry the mode in external_attr like Info-ZIP does."""
-    if path.name.endswith('.zip'):
+    """members: (name, data, mode). data may be ('symlink', target) for tar links.
+
+    Zip and .nupkg members carry the mode in external_attr like Info-ZIP does.
+    """
+    if path.name.endswith(('.zip', '.nupkg')):
         with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as archive:
             for name, data, mode in members:
                 info = zipfile.ZipInfo(name)
@@ -87,8 +104,13 @@ def write_archive(path, members):
         with tarfile.open(path, 'w:gz') as archive:
             for name, data, mode in members:
                 info = tarfile.TarInfo(name)
-                info.size = len(data)
                 info.mode = mode
+                if isinstance(data, tuple) and data[0] == 'symlink':
+                    info.type = tarfile.SYMTYPE
+                    info.linkname = data[1]
+                    archive.addfile(info)
+                    continue
+                info.size = len(data)
                 archive.addfile(info, io.BytesIO(data))
 
 def mutate(members, name, data=None, mode=None, drop=False):
@@ -129,6 +151,41 @@ def package_members(variant, target, version=VERSION, commit=COMMIT, metadata=No
                         (bin_modes or {}).get(name, 0o755)))
     for name, data in (extra_bins or {}).items():
         members.append((root + '/bin/' + name, data, 0o755))
+    return members
+
+def sdk_members(target, version=VERSION, commit=COMMIT, metadata=None, omit=(), library_data=None):
+    root = f'audiowmark-{version}-sdk-{target}'
+    library = 'audiowmark.dll' if target.startswith('win7-') else 'libaudiowmark.dylib' if target.startswith('macos-') else 'libaudiowmark.so'
+    meta = dict(version=version, abi=1, target=target, kind='sdk', variant='cli', commit=commit,
+                dependencies=dict(schema=1, sources=fake_entries('cli')))
+    meta.update(metadata or {})
+    files = [(root + '/metadata.json', json.dumps(meta).encode(), 0o644),
+             (root + '/README.adoc', b'readme', 0o644),
+             (root + '/licenses/audiowmark-COPYING', b'GPL', 0o644),
+             (root + '/include/audiowmark.h', b'AUDIOWMARK_CALL void audiowmark_test(void);\n', 0o644),
+             (root + '/build-scripts/build.sh', b'build', 0o755),
+             (root + '/lib/' + library, b'LIB' if library_data is None else library_data, 0o755),
+             (root + '/docs/api.md', b'# API', 0o644),
+             (root + '/examples/hello.c', b'int main(void){return 0;}', 0o644)]
+    if not target.startswith(('win7-', 'macos-')):
+        files.append((root + '/lib/libaudiowmark.so.1', ('symlink', 'libaudiowmark.so'), 0o777))
+    return [member for member in files if member[0] not in {root + '/' + name for name in omit}]
+
+def crate_members(version=VERSION, cargo_version=None):
+    root = f'audiowmark-{version}'
+    manifest = f'[package]\nname = "audiowmark"\nversion = "{cargo_version or version}"\n'.encode()
+    return [(root + '/Cargo.toml', manifest, 0o644), (root + '/src/lib.rs', b'// lib', 0o644)]
+
+def nupkg_members(nuget=NUGET, nuspec_version=None, omit_runtimes=()):
+    members = [('Audiowmark.nuspec', f'<?xml version="1.0"?><package><metadata><version>{nuspec_version or nuget}</version></metadata></package>'.encode(), 0o644),
+               ('lib/netstandard2.0/Audiowmark.Managed.dll', b'MANAGED', 0o644),
+               ('build/Audiowmark.targets', b'<Project/>', 0o644),
+               ('buildTransitive/Audiowmark.targets', b'<Project/>', 0o644),
+               ('README.md', b'readme', 0o644),
+               ('LICENSE', b'GPL', 0o644)]
+    for target, (rid, filename) in RIDS.items():
+        if rid not in omit_runtimes:
+            members.append((f'runtimes/{rid}/native/{filename}', b'NATIVE', 0o644))
     return members
 
 RECIPE_NAMES = ('build.sh', 'build-deps.sh', 'build-ffmpeg.sh', 'environment.sh', 'sources.py',
@@ -177,7 +234,7 @@ def html_text(version=VERSION, commit=COMMIT):
             f'<p>Technical documentation, commit {commit[:12]}</p>\n</body>\n</html>\n')
 
 def make_release(directory, version=VERSION, commit=COMMIT):
-    """Write the complete, valid 14-file release set."""
+    """Write the complete, valid 14-file core release set."""
     for variant in TOOLS:
         for target in CLI_TARGETS:
             write_archive(directory / package_name(variant, target, version),
@@ -186,6 +243,17 @@ def make_release(directory, version=VERSION, commit=COMMIT):
     write_archive(directory / f'audiowmark-{version}-licenses.tar.gz', licenses_members(version))
     (directory / f'audiowmark-{version}-docs.pdf').write_bytes(pdf_bytes())
     (directory / f'audiowmark-{version}-docs.html').write_text(html_text(version, commit), encoding='utf-8')
+
+def make_sdk(directory, version=VERSION, nuget=NUGET, commit=COMMIT):
+    """Write the SDK extension: seven SDK archives, the crate and the NuGet package."""
+    for target in SDK_TARGETS:
+        write_archive(directory / package_name('sdk', target, version), sdk_members(target, version, commit))
+    write_archive(directory / f'audiowmark-{version}.crate', crate_members(version))
+    write_archive(directory / f'Audiowmark.{nuget}.nupkg', nupkg_members(nuget))
+
+def make_full_release(directory, version=VERSION, nuget=NUGET, commit=COMMIT):
+    make_release(directory, version, commit)
+    make_sdk(directory, version, nuget, commit)
 
 # ---------------------------------------------------------------- gate tests
 class ReleaseGateTests(unittest.TestCase):
@@ -197,10 +265,12 @@ class ReleaseGateTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def gate(self, version=VERSION):
+    def gate(self, version=VERSION, nuget=None):
         out, err = io.StringIO(), io.StringIO()
         argv = sys.argv
         sys.argv = ['check-assets.py', '--version', version, '--directory', str(self.directory)]
+        if nuget:
+            sys.argv += ['--nuget-version', nuget]
         try:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 try:
@@ -220,6 +290,9 @@ class ReleaseGateTests(unittest.TestCase):
 
     def replace_package(self, variant, target, members):
         write_archive(self.directory / package_name(variant, target), members)
+
+    def replace_sdk(self, target, members):
+        write_archive(self.directory / package_name('sdk', target), members)
 
     def replace_source(self, members):
         write_archive(self.directory / f'audiowmark-{VERSION}-source.tar.gz', members)
@@ -487,6 +560,141 @@ class ReleaseGateTests(unittest.TestCase):
         (self.directory / f'audiowmark-{VERSION}-docs.html').write_text(html_text(version='0.0.1'), encoding='utf-8')
         self.assertRejected(self.gate(), 'HTML title does not carry version')
 
+# ---------------------------------------------------------------- SDK extension (--nuget-version)
+class SdkGateTests(unittest.TestCase):
+    def setUp(self):
+        self._directory = tempfile.TemporaryDirectory(prefix='audiowmark-sdk-gate-')
+        self.directory = pathlib.Path(self._directory.name)
+        self.addCleanup(self._directory.cleanup)
+        patcher = mock.patch.multiple(checks, entries=fake_entries, effective_manifest=fake_manifest)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def gate(self, nuget=NUGET):
+        return ReleaseGateTests.gate(self, nuget=nuget)
+
+    def assertRejected(self, result, *fragments):
+        return ReleaseGateTests.assertRejected(self, result, *fragments)
+
+    def replace_sdk(self, target, members):
+        write_archive(self.directory / package_name('sdk', target), members)
+
+    def test_complete_23_asset_set_passes_and_writes_sha256sums(self):
+        make_full_release(self.directory)
+        code, stderr = self.gate()
+        self.assertEqual(code, 0, stderr)
+        lines = (self.directory / 'SHA256SUMS').read_text().splitlines()
+        self.assertEqual(len(lines), 23)
+        for line in lines:
+            digest, name = line.split('  ', 1)
+            self.assertEqual(hashlib.sha256((self.directory / name).read_bytes()).hexdigest(), digest)
+
+    def test_sdk_files_without_nuget_version_are_extra_for_core_gate(self):
+        make_full_release(self.directory)
+        self.assertRejected(ReleaseGateTests.gate(self, nuget=None), 'extra=')
+
+    def test_each_missing_sdk_asset_is_rejected(self):
+        for name in sdk_names():
+            with self.subTest(missing=name):
+                make_full_release(self.directory)
+                (self.directory / name).unlink()
+                self.assertRejected(self.gate(), 'missing=', name)
+
+    def test_extra_sdk_for_gnu_cli_is_rejected(self):
+        make_full_release(self.directory)
+        write_archive(self.directory / package_name('cli', 'linux-gnu-x86_64'), package_members('cli', 'linux-musl-x86_64'))
+        self.assertRejected(self.gate(), 'extra=')
+
+    def test_sdk_metadata_kind_is_checked(self):
+        make_full_release(self.directory)
+        write_archive(self.directory / package_name('sdk', 'linux-gnu-x86_64'),
+                      sdk_members('linux-gnu-x86_64', metadata={'kind': 'cli'}))
+        self.assertRejected(self.gate(), "SDK metadata kind='cli', expected 'sdk'")
+
+    def test_sdk_abi_mismatch_is_rejected(self):
+        make_full_release(self.directory)
+        self.replace_sdk('macos-aarch64', sdk_members('macos-aarch64', metadata={'abi': 2}))
+        self.assertRejected(self.gate(), 'SDK metadata abi=2, expected 1')
+
+    def test_sdk_variant_mismatch_is_rejected(self):
+        make_full_release(self.directory)
+        self.replace_sdk('linux-musl-x86_64', sdk_members('linux-musl-x86_64', metadata={'variant': 'full'}))
+        self.assertRejected(self.gate(), "SDK metadata variant='full', expected 'cli'")
+
+    def test_sdk_version_mismatch_is_rejected(self):
+        make_full_release(self.directory)
+        self.replace_sdk('win7-x86_64', sdk_members('win7-x86_64', metadata={'version': '0.0.1'}))
+        self.assertRejected(self.gate(), "SDK metadata version='0.0.1'")
+
+    def test_sdk_dependencies_not_matching_locked_sources_are_rejected(self):
+        make_full_release(self.directory)
+        self.replace_sdk('linux-gnu-aarch64', sdk_members('linux-gnu-aarch64', metadata={'dependencies': {'schema': 1, 'sources': []}}))
+        self.assertRejected(self.gate(), "SDK metadata dependencies do not match sources.entries('cli')")
+
+    def test_sdk_missing_header_is_rejected(self):
+        make_full_release(self.directory)
+        self.replace_sdk('linux-gnu-x86_64', sdk_members('linux-gnu-x86_64', omit=('include/audiowmark.h',)))
+        self.assertRejected(self.gate(), 'missing member audiowmark-' + VERSION + '-sdk-linux-gnu-x86_64/include/audiowmark.h')
+
+    def test_sdk_missing_library_is_rejected(self):
+        make_full_release(self.directory)
+        self.replace_sdk('macos-x86_64', sdk_members('macos-x86_64', omit=('lib/libaudiowmark.dylib',)))
+        self.assertRejected(self.gate(), 'missing member audiowmark-' + VERSION + '-sdk-macos-x86_64/lib/libaudiowmark.dylib')
+
+    def test_sdk_empty_library_is_rejected(self):
+        make_full_release(self.directory)
+        self.replace_sdk('win7-x86_64', sdk_members('win7-x86_64', library_data=b''))
+        self.assertRejected(self.gate(), 'empty shared library')
+
+    def test_sdk_without_api_docs_or_examples_is_rejected(self):
+        make_full_release(self.directory)
+        self.replace_sdk('linux-musl-aarch64', sdk_members('linux-musl-aarch64', omit=('docs/api.md',)))
+        self.assertRejected(self.gate(), 'missing SDK API documentation')
+        self.replace_sdk('linux-musl-aarch64', sdk_members('linux-musl-aarch64', omit=('examples/hello.c',)))
+        self.assertRejected(self.gate(), 'missing SDK examples')
+
+    def test_linux_sdk_missing_soname_link_is_rejected(self):
+        make_full_release(self.directory)
+        members = [m for m in sdk_members('linux-gnu-x86_64') if not m[0].endswith('libaudiowmark.so.1')]
+        self.replace_sdk('linux-gnu-x86_64', members)
+        self.assertRejected(self.gate(), 'missing ABI SONAME link')
+
+    def test_linux_sdk_soname_link_to_wrong_file_is_rejected(self):
+        make_full_release(self.directory)
+        members = mutate(sdk_members('linux-gnu-x86_64'), f'audiowmark-{VERSION}-sdk-linux-gnu-x86_64/lib/libaudiowmark.so.1',
+                         data=('symlink', 'elsewhere.so'))
+        self.replace_sdk('linux-gnu-x86_64', members)
+        self.assertRejected(self.gate(), 'missing ABI SONAME link')
+
+    def test_windows_sdk_has_no_soname_link_requirement(self):
+        make_full_release(self.directory)
+        self.assertEqual(self.gate()[0], 0)
+
+    def test_crate_cargo_version_mismatch_is_rejected(self):
+        make_full_release(self.directory)
+        write_archive(self.directory / f'audiowmark-{VERSION}.crate', crate_members(cargo_version='0.0.1'))
+        self.assertRejected(self.gate(), "crate Cargo.toml version '0.0.1'")
+
+    def test_crate_missing_source_is_rejected(self):
+        make_full_release(self.directory)
+        write_archive(self.directory / f'audiowmark-{VERSION}.crate',
+                      [m for m in crate_members() if not m[0].endswith('src/lib.rs')])
+        self.assertRejected(self.gate(), 'missing crate member')
+
+    def test_nupkg_nuspec_version_mismatch_is_rejected(self):
+        make_full_release(self.directory)
+        write_archive(self.directory / f'Audiowmark.{NUGET}.nupkg', nupkg_members(nuspec_version='9.9.9'))
+        self.assertRejected(self.gate(), "NuGet nuspec version '9.9.9'")
+
+    def test_nupkg_missing_native_runtime_is_rejected(self):
+        make_full_release(self.directory)
+        write_archive(self.directory / f'Audiowmark.{NUGET}.nupkg', nupkg_members(omit_runtimes=('linux-x64',)))
+        self.assertRejected(self.gate(), 'NuGet package missing runtimes/linux-x64/native/libaudiowmark.so')
+
+    def test_nuget_version_must_match_the_package_name(self):
+        make_full_release(self.directory)
+        self.assertRejected(self.gate(nuget='9.9.9'), 'missing=', 'Audiowmark.9.9.9.nupkg')
+
 # ---------------------------------------------------------------- unpack tests
 class UnpackTests(unittest.TestCase):
     def setUp(self):
@@ -495,15 +703,26 @@ class UnpackTests(unittest.TestCase):
         self.addCleanup(self._directory.cleanup)
         self.artifacts = self.base / 'dist'
         self.artifacts.mkdir()
-        make_release(self.artifacts)
+        make_full_release(self.artifacts)
+
+    def run_unpack(self, artifacts, *extra):
+        return subprocess.run([sys.executable, str(UNPACK), '--artifacts', str(artifacts), *map(str, extra)],
+                              capture_output=True, text=True)
 
     def unpack(self, root, variant, artifacts=None):
-        return subprocess.run([sys.executable, str(UNPACK), '--artifacts', str(artifacts or self.artifacts),
-                               '--cli', str(root), '--variant', variant], capture_output=True, text=True)
+        return self.run_unpack(artifacts or self.artifacts, '--cli', root, '--variant', variant)
 
     @staticmethod
     def bins(target_dir):
         return sorted(p.name for p in (target_dir / 'bin').iterdir())
+
+    def only(self, directory, predicate):
+        """Copy the archives whose names satisfy predicate into a fresh artifacts directory."""
+        directory.mkdir(parents=True, exist_ok=True)
+        for name in sorted(p.name for p in self.artifacts.iterdir()):
+            if predicate(name):
+                (directory / name).write_bytes((self.artifacts / name).read_bytes())
+        return directory
 
     def test_variant_selects_only_its_archives(self):
         cli, full = self.base / 'unpacked-cli', self.base / 'unpacked-full'
@@ -524,6 +743,63 @@ class UnpackTests(unittest.TestCase):
         self.assertFalse((cli / 'linux-musl-x86_64' / 'bin' / 'ffmpeg').exists())
         self.assertTrue((full / 'linux-musl-x86_64' / 'bin' / 'ffmpeg').exists())
 
+    def test_native_restores_all_seven_sdk_targets_with_their_layout(self):
+        native = self.base / 'native'
+        result = self.run_unpack(self.artifacts, '--native', native)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(p.name for p in native.iterdir()), sorted(SDK_TARGETS))
+        self.assertTrue((native / 'linux-gnu-x86_64' / 'lib' / 'libaudiowmark.so').is_file())
+        self.assertTrue((native / 'linux-gnu-x86_64' / 'include' / 'audiowmark.h').is_file())
+        self.assertFalse((native / 'linux-gnu-x86_64' / 'bin').exists())
+
+    def test_gnu_sdk_only_job_with_native_and_cli_succeeds(self):
+        gnu_only = self.only(self.base / 'gnu-only', lambda name: '-sdk-linux-gnu-' in name)
+        native, cli = self.base / 'native', self.base / 'cli'
+        result = self.run_unpack(gnu_only, '--native', native, '--cli', cli, '--variant', 'cli')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(p.name for p in native.iterdir()), sorted(GNU_TARGETS))
+        self.assertFalse(cli.exists() and any(cli.iterdir()))
+
+    def test_full_only_job_with_native_and_full_cli_succeeds(self):
+        full_only = self.only(self.base / 'full-only', lambda name: '-full-' in name)
+        native, cli = self.base / 'native', self.base / 'cli'
+        result = self.run_unpack(full_only, '--native', native, '--cli', cli, '--variant', 'full')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(p.name for p in cli.iterdir()), sorted(CLI_TARGETS))
+        for target in CLI_TARGETS:
+            suffix = '.exe' if target.startswith('win7-') else ''
+            self.assertEqual(self.bins(cli / target), sorted(t + suffix for t in TOOLS['full']))
+        self.assertFalse(native.exists() and any(native.iterdir()))
+
+    def test_mixed_selection_never_mixes_cli_and_full(self):
+        cli, full = self.base / 'cli', self.base / 'full'
+        self.assertEqual(self.run_unpack(self.artifacts, '--cli', cli, '--variant', 'cli').returncode, 0)
+        self.assertEqual(self.run_unpack(self.artifacts, '--cli', full, '--variant', 'full').returncode, 0)
+        for target in CLI_TARGETS:
+            self.assertEqual(len(self.bins(cli / target)), 1)
+            self.assertEqual(len(self.bins(full / target)), len(TOOLS['full']))
+        result = self.run_unpack(self.artifacts, '--native', self.base / 'native', '--cli', cli, '--variant', 'cli')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(p.name for p in (self.base / 'native').iterdir()), sorted(SDK_TARGETS))
+
+    def test_native_only_with_no_sdk_archives_is_rejected(self):
+        no_sdk = self.only(self.base / 'no-sdk', lambda name: '-sdk-' not in name)
+        result = self.run_unpack(no_sdk, '--native', self.base / 'native')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('no sdk archives', result.stderr)
+
+    def test_nothing_matching_either_destination_is_rejected(self):
+        only_cli = self.only(self.base / 'only-cli', lambda name: '-cli-' in name)
+        result = self.run_unpack(only_cli, '--native', self.base / 'native', '--cli', self.base / 'full', '--variant', 'full')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('no sdk, full archives', result.stderr)
+
+    def test_duplicate_sdk_archive_for_one_target_is_rejected(self):
+        write_archive(self.artifacts / f'audiowmark-OTHER-sdk-linux-gnu-x86_64.tar.gz', sdk_members('linux-gnu-x86_64', version='OTHER'))
+        result = self.run_unpack(self.artifacts, '--native', self.base / 'native')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('duplicate sdk archive for linux-gnu-x86_64', result.stderr)
+
     def test_duplicate_archive_for_same_variant_and_target_is_rejected(self):
         write_archive(self.artifacts / 'audiowmark-OTHER-cli-linux-musl-x86_64.tar.gz',
                       package_members('cli', 'linux-musl-x86_64', version='OTHER'))
@@ -532,11 +808,7 @@ class UnpackTests(unittest.TestCase):
         self.assertIn('duplicate cli archive for linux-musl-x86_64', result.stderr)
 
     def test_missing_variant_is_rejected(self):
-        only_cli = self.base / 'only-cli'
-        only_cli.mkdir()
-        for name in expected_names():
-            if '-cli-' in name:
-                (only_cli / name).write_bytes((self.artifacts / name).read_bytes())
+        only_cli = self.only(self.base / 'only-cli', lambda name: '-cli-' in name)
         result = self.unpack(self.base / 'root', 'full', artifacts=only_cli)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('no full archives', result.stderr)

@@ -41,6 +41,9 @@
 using std::string;
 using std::vector;
 
+/* utils.cc asks whether an SDK call is running; videowmark has no engine */
+bool engine_quiet() { return false; }
+
 namespace {
 
 const char *const HELP_TEXT =

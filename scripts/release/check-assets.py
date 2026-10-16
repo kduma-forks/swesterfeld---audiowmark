@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Require the complete 14-file release set, check every archive and document against the locked sources, then write SHA256SUMS."""
+"""Require the complete release set, check every archive and document, then write SHA256SUMS.
+
+core (14): cli x5, full x5, source, licenses, docs.pdf, docs.html.
+With --nuget-version the set is 23: core plus sdk x7, the Rust crate and the NuGet package.
+"""
 import argparse
 import hashlib
 import json
@@ -14,7 +18,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from sources import effective_manifest, entries
 
 CLI_TARGETS = ('win7-x86_64', 'linux-musl-x86_64', 'linux-musl-aarch64', 'macos-x86_64', 'macos-aarch64')
+SDK_TARGETS = CLI_TARGETS + ('linux-gnu-x86_64', 'linux-gnu-aarch64')
 TOOLS = {'cli': ('audiowmark',), 'full': ('audiowmark', 'videowmark', 'ffmpeg', 'ffprobe')}
+# NuGet runtime identifier and native file name for each SDK target.
+SDK_RIDS = {'win7-x86_64': ('win-x64', 'audiowmark.dll'), 'linux-gnu-x86_64': ('linux-x64', 'libaudiowmark.so'),
+            'linux-gnu-aarch64': ('linux-arm64', 'libaudiowmark.so'), 'linux-musl-x86_64': ('linux-musl-x64', 'libaudiowmark.so'),
+            'linux-musl-aarch64': ('linux-musl-arm64', 'libaudiowmark.so'), 'macos-x86_64': ('osx-x64', 'libaudiowmark.dylib'),
+            'macos-aarch64': ('osx-arm64', 'libaudiowmark.dylib')}
 COMMIT = re.compile(r'[0-9a-f]{40}')
 FFMPEG_VERSION = re.compile(r'ffmpeg version 7\.1\.5(?:\s|$)')
 # Must match the options configured in build-ffmpeg.sh; the packaged binary has to report them.
@@ -25,23 +35,34 @@ FFMPEG_FORBIDDEN_FLAGS = ('--enable-gpl', '--enable-nonfree')
 RECIPES = ('build.sh', 'build-deps.sh', 'build-ffmpeg.sh', 'environment.sh', 'sources.py',
            'dependencies.lock.json', 'dependencies-full.lock.json')
 
+def library_name(target):
+    return 'audiowmark.dll' if target.startswith('win7-') else 'libaudiowmark.dylib' if target.startswith('macos-') else 'libaudiowmark.so'
+
 def package_name(version, variant, target):
     return f'audiowmark-{version}-{variant}-{target}' + ('.zip' if target.startswith('win7-') else '.tar.gz')
 
-def expected_names(version):
+def core_names(version):
     names = {package_name(version, variant, target) for variant in TOOLS for target in CLI_TARGETS}
     names.update((f'audiowmark-{version}-source.tar.gz', f'audiowmark-{version}-licenses.tar.gz',
                   f'audiowmark-{version}-docs.pdf', f'audiowmark-{version}-docs.html'))
     return names
 
+def sdk_names(version, nuget_version):
+    names = {package_name(version, 'sdk', target) for target in SDK_TARGETS}
+    names.update((f'audiowmark-{version}.crate', f'Audiowmark.{nuget_version}.nupkg'))
+    return names
+
+def expected_names(version, nuget_version=None):
+    return core_names(version) | (sdk_names(version, nuget_version) if nuget_version else set())
+
 class Member:
-    def __init__(self, name, size, mode):
-        self.name, self.size, self.mode = name, size, mode
+    def __init__(self, name, size, mode, link=None):
+        self.name, self.size, self.mode, self.link = name, size, mode, link
 
 def open_archive(path, wanted=(), digest_prefix=None):
     """One streaming pass: member listing, the bytes of the wanted members, and sha256 of members under digest_prefix."""
     members, contents, digests = [], {}, {}
-    if path.name.endswith('.zip'):
+    if path.name.endswith(('.zip', '.nupkg')):
         with zipfile.ZipFile(path) as z:
             for info in z.infolist():
                 if info.is_dir():
@@ -56,6 +77,9 @@ def open_archive(path, wanted=(), digest_prefix=None):
     else:
         with tarfile.open(path, 'r:gz') as tar:
             for member in tar:
+                if member.issym():
+                    members.append(Member(member.name, 0, member.mode, link=member.linkname))
+                    continue
                 if not member.isfile():
                     continue
                 members.append(Member(member.name, member.size, member.mode))
@@ -165,6 +189,67 @@ def check_package(path, version, variant, target):
         check_ffmpeg(metadata)
     return metadata['commit']
 
+def check_sdk(path, version, target):
+    root = f'audiowmark-{version}-sdk-{target}'
+    members, contents, _ = open_archive(path, wanted={root + '/metadata.json'})
+    check_members(members, root)
+    by_name = {m.name: m for m in members}
+    library = root + '/lib/' + library_name(target)
+    for required in (root + '/metadata.json', root + '/README.adoc', root + '/licenses/audiowmark-COPYING',
+                     root + '/include/audiowmark.h', root + '/build-scripts/build.sh', library):
+        if required not in by_name:
+            raise ValueError('missing member ' + required)
+    if by_name[library].size == 0:
+        raise ValueError('empty shared library ' + library)
+    if not any(name.startswith(root + '/docs/api') for name in by_name):
+        raise ValueError('missing SDK API documentation under ' + root + '/docs/')
+    if not any(name.startswith(root + '/examples/') for name in by_name):
+        raise ValueError('missing SDK examples under ' + root + '/examples/')
+    if not target.startswith(('win7-', 'macos-')):
+        link = by_name.get(root + '/lib/libaudiowmark.so.1')
+        if link is None or link.link != library_name(target):
+            raise ValueError('missing ABI SONAME link lib/libaudiowmark.so.1 -> ' + library_name(target))
+    metadata = load_json(contents, root + '/metadata.json')
+    expected = {'version': version, 'abi': 1, 'target': target, 'kind': 'sdk', 'variant': 'cli'}
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            raise ValueError(f'SDK metadata {key}={metadata.get(key)!r}, expected {value!r}')
+    if not COMMIT.fullmatch(str(metadata.get('commit', ''))):
+        raise ValueError('SDK metadata commit is not a full hash')
+    if metadata.get('dependencies') != {'schema': 1, 'sources': entries('cli')}:
+        raise ValueError("SDK metadata dependencies do not match sources.entries('cli')")
+    return metadata['commit']
+
+def check_crate(path, version):
+    root = f'audiowmark-{version}'
+    members, contents, _ = open_archive(path, wanted={root + '/Cargo.toml'})
+    check_members(members, root)
+    names = {m.name for m in members}
+    for required in (root + '/Cargo.toml', root + '/src/lib.rs'):
+        if required not in names:
+            raise ValueError('missing crate member ' + required)
+    manifest = contents[root + '/Cargo.toml'].decode('utf-8')
+    found = re.search(r'(?m)^version = "([^"]+)"', manifest)
+    if not found or found[1] != version:
+        raise ValueError(f'crate Cargo.toml version {found[1] if found else None!r} does not match {version}')
+
+def check_nupkg(path, nuget_version, rids):
+    members, _, _ = open_archive(path)
+    names = {m.name for m in members}
+    nuspec = [name for name in names if name.endswith('.nuspec') and '/' not in name]
+    if len(nuspec) != 1:
+        raise ValueError('NuGet package must contain exactly one top-level .nuspec')
+    _, contents, _ = open_archive(path, wanted=set(nuspec))
+    found = re.search(r'<version>([^<]+)</version>', contents[nuspec[0]].decode('utf-8'))
+    if not found or found[1] != nuget_version:
+        raise ValueError(f'NuGet nuspec version {found[1] if found else None!r} does not match {nuget_version}')
+    required = {'lib/netstandard2.0/Audiowmark.Managed.dll', 'build/Audiowmark.targets',
+                'buildTransitive/Audiowmark.targets', 'README.md', 'LICENSE'}
+    required |= {f'runtimes/{rid}/native/{filename}' for rid, filename in rids}
+    missing = sorted(required - names)
+    if missing:
+        raise ValueError('NuGet package missing ' + ', '.join(missing))
+
 def check_source(path, version):
     root = f'audiowmark-{version}-source'
     manifest = effective_manifest('full')
@@ -236,8 +321,8 @@ def check_html(path, version, commit):
     if f'commit {commit[:12]}' not in text:
         raise ValueError('HTML does not carry source commit ' + commit[:12])
 
-def validate(directory, version):
-    expected = expected_names(version)
+def validate(directory, version, nuget_version=None):
+    expected = expected_names(version, nuget_version)
     actual = {p.name for p in directory.iterdir() if p.is_file() and p.name != 'SHA256SUMS'}
     problems = []
     if actual != expected:
@@ -248,6 +333,11 @@ def validate(directory, version):
     commits = {}
     checks = [(package_name(version, variant, target), lambda p, v=variant, t=target: check_package(p, version, v, t))
               for variant in TOOLS for target in CLI_TARGETS]
+    if nuget_version:
+        checks += [(package_name(version, 'sdk', target), lambda p, t=target: check_sdk(p, version, t)) for target in SDK_TARGETS]
+        checks.append((f'audiowmark-{version}.crate', lambda p: check_crate(p, version)))
+        rids = [SDK_RIDS[target] for target in SDK_TARGETS]
+        checks.append((f'Audiowmark.{nuget_version}.nupkg', lambda p: check_nupkg(p, nuget_version, rids)))
     checks.append((f'audiowmark-{version}-source.tar.gz', lambda p: check_source(p, version)))
     checks.append((f'audiowmark-{version}-licenses.tar.gz', lambda p: check_licenses(p, version)))
     for name, check in checks:
@@ -257,7 +347,7 @@ def validate(directory, version):
                 commit = check(path)
                 if commit is not None:
                     commits[name] = commit
-            except (ValueError, tarfile.TarError, zipfile.BadZipFile, KeyError) as error:
+            except (ValueError, tarfile.TarError, zipfile.BadZipFile, KeyError, UnicodeDecodeError) as error:
                 problems.append(f'{name}: {error}')
     if len(set(commits.values())) > 1:
         problems.append('archives come from different commits: ' + str(sorted(set(commits.values()))))
@@ -279,9 +369,10 @@ def validate(directory, version):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', required=True)
+    parser.add_argument('--nuget-version', help='NuGet version; enables the 23-asset set with SDK, crate and NuGet package')
     parser.add_argument('--directory', type=pathlib.Path, required=True)
     args = parser.parse_args()
-    expected, problems = validate(args.directory, args.version)
+    expected, problems = validate(args.directory, args.version, args.nuget_version)
     if problems:
         for problem in problems:
             print('error: ' + problem, file=sys.stderr)

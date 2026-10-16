@@ -9,7 +9,13 @@ AC_PROG_CXX
 AM_PROG_AR
 AC_CANONICAL_HOST
 AC_ARG_ENABLE([static-deps], [AS_HELP_STRING([--enable-static-deps], [request static dependency link flags from pkg-config])], [], [enable_static_deps=no])
+# MinGW can embed static COFF archives in DLLs. Libtool's default DLL/import
+# archive check otherwise rejects them and silently builds a static module.
+AS_CASE([$host_os], [mingw*], [
+  AS_IF([test "x$enable_static_deps" = xyes], [lt_cv_deplibs_check_method=pass_all])
+])
 LT_INIT
+AM_CONDITIONAL([COND_ELF], [test "x$host_os" != "x${host_os#linux}"])
 AM_CONDITIONAL([COND_WINDOWS], [test "x$host_os" != "x${host_os#mingw}"])
 AC_ARG_ENABLE([videowmark], [AS_HELP_STRING([--disable-videowmark], [do not build or install videowmark])], [], [enable_videowmark=yes])
 AM_CONDITIONAL([COND_VIDEOWMARK], [test "x$enable_videowmark" = xyes])
@@ -23,6 +29,7 @@ AS_IF([test -n "$PYTHON"], [
   AS_IF(["$PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1],
     [], [PYTHON=""])
 ])
+AC_ARG_VAR([AUDIOWMARK_SHARED_LDFLAGS], [extra flags for SDK only (for example -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL)])
 
 AC_C_BIGENDIAN()
 
@@ -215,6 +222,30 @@ AC_LANG_POP([C++])
 
 # Less cluttered build output
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
+
+# Libtool C++ postdeps append -lstdc++/-lgcc_s even when compiler static
+# runtime flags were supplied. Put the requested runtime archives before them.
+AUDIOWMARK_SDK_LIBTOOL_TAG=CXX
+AUDIOWMARK_SDK_RUNTIME_LIBS=
+AS_CASE([$AUDIOWMARK_SHARED_LDFLAGS], [*-static-libstdc++*], [
+  AUDIOWMARK_SDK_LIBTOOL_TAG=CC
+  audiowmark_cxx_archive=`$CXX -print-file-name=libstdc++.a`
+  AS_IF([test -f "$audiowmark_cxx_archive"], [AUDIOWMARK_SDK_RUNTIME_LIBS="$audiowmark_cxx_archive"], [AC_MSG_ERROR([static libstdc++ archive unavailable])])
+  AS_CASE([$host_os], [mingw*], [
+    audiowmark_winpthread_archive=`$CXX -print-file-name=libwinpthread.a`
+    AS_IF([test -f "$audiowmark_winpthread_archive"],
+      [AUDIOWMARK_SDK_RUNTIME_LIBS="$AUDIOWMARK_SDK_RUNTIME_LIBS $audiowmark_winpthread_archive"],
+      [AC_MSG_ERROR([static libwinpthread archive unavailable; install the MinGW winpthreads static library])])
+  ])
+])
+AS_CASE([$AUDIOWMARK_SHARED_LDFLAGS], [*-static-libgcc*], [
+  for audiowmark_runtime in libgcc.a libgcc_eh.a; do
+    audiowmark_runtime_archive=`$CXX -print-file-name=$audiowmark_runtime`
+    AS_IF([test -f "$audiowmark_runtime_archive"], [AUDIOWMARK_SDK_RUNTIME_LIBS="$AUDIOWMARK_SDK_RUNTIME_LIBS $audiowmark_runtime_archive"])
+  done
+])
+AC_SUBST([AUDIOWMARK_SDK_RUNTIME_LIBS])
+AC_SUBST([AUDIOWMARK_SDK_LIBTOOL_TAG])
 
 AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile tests/test-common.sh docs/Makefile manpages/Makefile])
 AC_OUTPUT

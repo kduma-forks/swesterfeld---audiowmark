@@ -19,8 +19,18 @@
 #include "utils.hh"
 
 #include <regex>
+#include <mutex>
+#include <sstream>
 
 #include <assert.h>
+#include <cerrno>
+#ifdef _WIN32
+#include <windows.h>
+#include <bcrypt.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 using std::string;
 using std::vector;
@@ -30,25 +40,13 @@ using std::regex_match;
 static void
 gcrypt_init()
 {
-  static bool init_ok = false;
-
-  if (!init_ok)
-    {
-      /* version check: start libgcrypt initialization */
-      if (!gcry_check_version (GCRYPT_VERSION))
-        {
-          error ("audiowmark: libgcrypt version mismatch\n");
-          exit (1);
-        }
-
-      /* disable secure memory (assume we run in a controlled environment) */
-      gcry_control (GCRYCTL_DISABLE_SECMEM, 0);
-
-      /* tell libgcrypt that initialization has completed */
-      gcry_control (GCRYCTL_INITIALIZATION_FINISHED, 0);
-
-      init_ok = true;
-    }
+  static std::once_flag once;
+  std::call_once(once, [] {
+    if (!gcry_check_version(GCRYPT_VERSION))
+      throw std::runtime_error("libgcrypt version mismatch");
+    if (!gcry_control(GCRYCTL_INITIALIZATION_FINISHED_P))
+      gcry_control(GCRYCTL_INITIALIZATION_FINISHED, 0);
+  });
 }
 
 
@@ -98,6 +96,7 @@ Random::Random (const Key& key, uint64_t start_seed, Stream stream)
 {
   gcrypt_init();
 
+  try {
   gcry_error_t gcry_ret = gcry_cipher_open (&aes_ctr_cipher, GCRY_CIPHER, GCRY_CIPHER_MODE_CTR, 0);
   die_on_error ("gcry_cipher_open", gcry_ret);
 
@@ -111,6 +110,11 @@ Random::Random (const Key& key, uint64_t start_seed, Stream stream)
   die_on_error ("gcry_cipher_setkey", gcry_ret);
 
   seed (start_seed, stream);
+  } catch (...) {
+    if (aes_ctr_cipher) gcry_cipher_close(aes_ctr_cipher);
+    if (seed_cipher) gcry_cipher_close(seed_cipher);
+    throw;
+  }
 }
 
 void
@@ -145,7 +149,7 @@ void
 Random::refill_buffer()
 {
   const size_t block_size = 256;
-  static unsigned char zeros[block_size] = { 0, };
+  static const unsigned char zeros[block_size] = { 0, };
   unsigned char cipher_text[block_size];
 
   gcry_error_t gcry_ret = gcry_cipher_encrypt (aes_ctr_cipher, cipher_text, block_size, zeros, block_size);
@@ -163,29 +167,45 @@ Random::refill_buffer()
 void
 Random::die_on_error (const char *func, gcry_error_t err)
 {
-  if (err)
-    {
-      error ("%s failed: %s/%s\n", func, gcry_strsource (err), gcry_strerror (err));
-
-      exit (1); /* can't recover here */
-    }
+  if (err) throw std::runtime_error(string_printf("%s failed: %s/%s", func, gcry_strsource(err), gcry_strerror(err)));
 }
 
 string
 Random::gen_key()
 {
-  gcrypt_init();
-
-  vector<unsigned char> key (16);
-  gcry_randomize (&key[0], 16, /* long term key material strength */ GCRY_VERY_STRONG_RANDOM);
+  vector<unsigned char> key (Key::SIZE);
+  // Obtain key material directly from the OS. This avoids allocating gcrypt's
+  // process-global entropy cache or changing a host's secure-memory policy.
+#ifdef _WIN32
+  if (BCryptGenRandom(nullptr, key.data(), static_cast<ULONG>(key.size()),
+                      BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0)
+    throw std::runtime_error("System random generator failed");
+#else
+  int flags = O_RDONLY;
+#ifdef O_CLOEXEC
+  flags |= O_CLOEXEC;
+#endif
+  int fd;
+  do { fd = open("/dev/urandom", flags); } while (fd < 0 && errno == EINTR);
+  if (fd < 0) throw std::runtime_error("Cannot open system random generator");
+  struct CloseFd { int fd; ~CloseFd() { close(fd); } } owner{fd};
+  size_t offset = 0;
+  while (offset < key.size()) {
+    const auto n = read(fd, key.data() + offset, key.size() - offset);
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) throw std::runtime_error("Cannot read system random generator");
+    offset += static_cast<size_t>(n);
+  }
+#endif
   return vec_to_hex_str (key);
 }
 
 uint64_t
 Random::seed_from_hash (const vector<float>& floats)
 {
+  gcrypt_init();
   unsigned char hash[20];
-  gcry_md_hash_buffer (GCRY_MD_SHA1, hash, &floats[0], floats.size() * sizeof (float));
+  gcry_md_hash_buffer (GCRY_MD_SHA1, hash, floats.data(), floats.size() * sizeof (float));
   return uint64_from_buffer (hash);
 }
 
@@ -295,68 +315,49 @@ tokenize (const string& line, vector<string>& tokens)
 void
 Key::load_key (const string& key_file)
 {
-  FILE *f = utf8_fopen (key_file, "rb");
-  if (!f)
-    {
-      error ("audiowmark: error opening key file: '%s'\n", key_file.c_str());
-      exit (1);
-    }
-  m_name = key_file;
-  // basename
-  size_t sep = m_name.find_last_of ("\\/");
-  if (sep != string::npos)
-    m_name = m_name.substr (sep + 1);
+  FILE *f = utf8_fopen(key_file, "rb");
+  if (!f) throw EngineError("Cannot open key file: " + key_file);
+  ScopedFile owner(f);
+  std::string text;
+  char buffer[4096];
+  size_t n;
+  while ((n = fread(buffer, 1, sizeof(buffer), f))) text.append(buffer, n);
+  if (ferror(f)) throw EngineError("Cannot read key file: " + key_file);
+  std::string name = key_file.substr(key_file.find_last_of("\\/") + 1);
+  import_text(text, name);
+}
 
-  char buffer[1024];
-  int line = 1;
-  int keys = 0;
-  while (fgets (buffer, 1024, f))
-    {
-      vector<string> tokens;
-      bool parse_ok = false;
-      if (tokenize (buffer, tokens))
-        {
-          if (tokens.size() == 2 && tokens[0] == "key") /* line containing aes key */
-            {
-              vector<unsigned char> key = hex_str_to_vec (tokens[1]);
-              if (key.size() != Key::SIZE)
-                {
-                  error ("audiowmark: wrong key length in key file '%s', line %d\n => required key length is %zd bits\n", key_file.c_str(), line, Key::SIZE * 8);
-                  exit (1);
-                }
-              m_aes_key = key;
-              keys++;
-              parse_ok = true;
-            }
-          if (tokens.size() == 2 && tokens[0] == "name") /* key name */
-            {
-              m_name = tokens[1];
-              parse_ok = true;
-            }
-          if (tokens.empty()) /* blank line or comment */
-            {
-              parse_ok = true;
-            }
-        }
-      if (!parse_ok)
-        {
-          error ("audiowmark: parse error in key file '%s', line %d\n", key_file.c_str(), line);
-          exit (1);
-        }
-      line++;
-    }
-  fclose (f);
-
-  if (keys > 1)
-    {
-      error ("audiowmark: key file '%s' contains more than one key\n", key_file.c_str());
-      exit (1);
-    }
-  if (keys == 0)
-    {
-      error ("audiowmark: key file '%s' contains no key\n", key_file.c_str());
-      exit (1);
-    }
+void Key::import_text(const std::string& text, const std::string& default_name)
+{
+  std::istringstream input(text);
+  std::string line;
+  std::string name = default_name;
+  std::vector<unsigned char> bytes;
+  unsigned keys = 0, line_number = 0;
+  while (std::getline(input, line)) {
+    ++line_number;
+    std::vector<std::string> tokens;
+    if (!tokenize(line, tokens)) throw std::invalid_argument("Invalid key syntax at line " + std::to_string(line_number));
+    if (tokens.empty()) continue;
+    if (tokens.size() != 2) throw std::invalid_argument("Invalid key field at line " + std::to_string(line_number));
+    if (tokens[0] == "key") {
+      bytes = hex_str_to_vec(tokens[1]);
+      if (++keys != 1 || bytes.size() != SIZE) throw std::invalid_argument("Key must contain exactly one 128-bit key");
+    } else if (tokens[0] == "name") name = tokens[1];
+    else throw std::invalid_argument("Unknown key field: " + tokens[0]);
+  }
+  if (keys != 1) throw std::invalid_argument("Key contains no key");
+  m_aes_key = std::move(bytes);
+  m_name = std::move(name);
+}
+std::string Key::export_text() const
+{
+  std::string escaped;
+  for (char c : m_name) {
+    if (c == '\\' || c == '"') escaped += '\\';
+    escaped += c;
+  }
+  return "# watermarking key for audiowmark\n\nkey " + vec_to_hex_str(m_aes_key) + "\nname \"" + escaped + "\"\n";
 }
 
 const unsigned char *

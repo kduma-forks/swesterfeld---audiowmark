@@ -76,7 +76,7 @@ apply_frame_mod (const vector<FrameMod>& frame_mod, const vector<complex<float>>
       const float mag = abs (fft_out[i]);
       if (mag > min_mag)
         {
-          const float mag_factor = powf (mag, -Params::water_delta * data_bit_sign);
+          const float mag_factor = powf (mag, -params().water_delta * data_bit_sign);
 
           fft_delta_spect[i] = fft_out[i] * (mag_factor - 1);
         }
@@ -86,12 +86,12 @@ apply_frame_mod (const vector<FrameMod>& frame_mod, const vector<complex<float>>
 static void
 mark_data (const Key& key, vector<vector<FrameMod>>& frame_mod, const vector<int>& bitvec)
 {
-  assert (bitvec.size() == mark_data_frame_count() / Params::frames_per_bit);
+  assert (bitvec.size() == mark_data_frame_count() / params().frames_per_bit);
   assert (frame_mod.size() >= mark_data_frame_count());
 
   const int frame_count = mark_data_frame_count();
 
-  if (Params::mix)
+  if (params().mix)
     {
       vector<MixEntry> mix_entries = gen_mix_entries (key);
 
@@ -101,7 +101,7 @@ mark_data (const Key& key, vector<vector<FrameMod>>& frame_mod, const vector<int
             {
               int b = f * Params::bands_per_frame + frame_b;
 
-              const int data_bit = bitvec[f / Params::frames_per_bit];
+              const int data_bit = bitvec[f / params().frames_per_bit];
 
               const int u = mix_entries[b].up;
               const int d = mix_entries[b].down;
@@ -121,7 +121,7 @@ mark_data (const Key& key, vector<vector<FrameMod>>& frame_mod, const vector<int
         {
           size_t index = bit_pos_gen.data_frame (f);
 
-          prepare_frame_mod (up_down_gen, f, frame_mod[index], bitvec[f / Params::frames_per_bit]);
+          prepare_frame_mod (up_down_gen, f, frame_mod[index], bitvec[f / params().frames_per_bit]);
         }
     }
 }
@@ -466,7 +466,7 @@ add_stream_watermark (const Key& key, AudioInputStream *in_stream, AudioOutputSt
 
   /* write some informational messages */
   info ("Message:      %s\n", bit_vec_to_str (bitvec).c_str());
-  info ("Strength:     %.6g\n\n", Params::water_delta * 1000);
+  info ("Strength:     %.6g\n\n", params().water_delta * 1000);
 
   if (in_stream->n_frames() == AudioInputStream::N_FRAMES_UNKNOWN)
     {
@@ -550,7 +550,7 @@ add_stream_watermark (const Key& key, AudioInputStream *in_stream, AudioOutputSt
       vector<float> orig_samples  = audio_buffer.read_frames (to_read);
       assert (samples.size() == orig_samples.size());
 
-      if (Params::snr)
+      if (params().snr)
         {
           for (size_t i = 0; i < samples.size(); i++)
             {
@@ -564,7 +564,7 @@ add_stream_watermark (const Key& key, AudioInputStream *in_stream, AudioOutputSt
       for (size_t i = 0; i < samples.size(); i++)
         samples[i] += orig_samples[i];
 
-      if (!Params::test_no_limiter)
+      if (!params().test_no_limiter)
         samples = limiter.process (samples);
 
       size_t max_write_frames = total_input_frames - total_output_frames;
@@ -588,7 +588,7 @@ add_stream_watermark (const Key& key, AudioInputStream *in_stream, AudioOutputSt
       total_output_frames += samples.size() / n_channels;
     }
 
-  if (Params::snr)
+  if (params().snr)
     info ("SNR:          %f dB\n", 10 * log10 (snr_signal_power / snr_delta_power));
 
   info ("Data Blocks:  %d\n", wm_resampler.data_blocks());
@@ -599,7 +599,7 @@ add_stream_watermark (const Key& key, AudioInputStream *in_stream, AudioOutputSt
       if (total_output_frames != expect_frames)
         {
           auto msg = string_printf ("unexpected EOF; input frames (%zd) != output frames (%zd)", expect_frames, total_output_frames);
-          if (Params::strict)
+          if (params().strict)
             {
               error ("audiowmark: error: %s\n", msg.c_str());
               return 1;
@@ -646,12 +646,12 @@ add_watermark (const Key& key, const string& infile, const string& outfile, cons
     }
 
   /* write input/output stream details */
-  info ("Input:        %s\n", Params::input_label.size() ? Params::input_label.c_str() : infile.c_str());
-  if (Params::input_format == Format::RAW)
-    info_format ("Raw Input", Params::raw_input_format);
-  info ("Output:       %s\n", Params::output_label.size() ? Params::output_label.c_str() : outfile.c_str());
-  if (Params::output_format == Format::RAW)
-    info_format ("Raw Output", Params::raw_output_format);
+  info ("Input:        %s\n", params().input_label.size() ? params().input_label.c_str() : infile.c_str());
+  if (params().input_format == Format::RAW)
+    info_format ("Raw Input", params().raw_input_format);
+  info ("Output:       %s\n", params().output_label.size() ? params().output_label.c_str() : outfile.c_str());
+  if (params().output_format == Format::RAW)
+    info_format ("Raw Output", params().raw_output_format);
 
   return add_stream_watermark (key, in_stream.get(), out_stream.get(), bits, 0);
 }

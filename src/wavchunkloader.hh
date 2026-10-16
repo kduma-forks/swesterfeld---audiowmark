@@ -51,6 +51,7 @@ class WavChunkLoader
   Error           refill (std::vector<float>& samples, size_t max_size, bool *eof);
 public:
   WavChunkLoader (const std::string& filename);
+  WavChunkLoader (std::unique_ptr<AudioInputStream> stream);
 
   Error           load_next_chunk();
   bool            done();

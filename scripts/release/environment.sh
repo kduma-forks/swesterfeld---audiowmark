@@ -28,7 +28,7 @@ case "$TARGET" in
     export MACOSX_DEPLOYMENT_TARGET=15.0 CC=clang
     export CXX=clang++
     ;;
-  linux-musl-*) ;;
+  linux-gnu-*|linux-musl-*) ;;
   *) echo "unknown target: $TARGET" >&2; return 1 ;;
 esac
 actual_arch=$(uname -m)

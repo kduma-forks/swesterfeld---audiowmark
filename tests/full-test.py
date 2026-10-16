@@ -501,31 +501,86 @@ def parallel_runs(ctx):
         raise AssertionError('leftover files')
 
 
-@test(posix_only=True)
+class console_for_events:
+    """Windows: CTRL_BREAK_EVENT can only be delivered inside a console. CI runners and MSYS2 shells
+    may run Python without one, so a console is allocated for the duration of the test (and freed)."""
+
+    def __enter__(self):
+        self.allocated = False
+        if WINDOWS:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            if not kernel32.GetConsoleWindow() and not kernel32.GetConsoleProcessList((ctypes.c_uint * 2)(), 2):
+                if not kernel32.AllocConsole():
+                    raise AssertionError('cannot allocate a console for CTRL_BREAK_EVENT (error %d)' % ctypes.GetLastError())
+                self.allocated = True
+        return self
+
+    def __exit__(self, *exc):
+        if self.allocated:
+            import ctypes
+            ctypes.windll.kernel32.FreeConsole()
+        return False
+
+
+def send_interrupt(proc):
+    """Ctrl-C equivalent: SIGINT on POSIX, CTRL_BREAK_EVENT to the process group on Windows."""
+    if WINDOWS:
+        # the child was started in its own process group inside the console of console_for_events
+        try:
+            proc.send_signal(signal.CTRL_BREAK_EVENT)
+        except (OSError, ValueError) as error:
+            raise AssertionError('cannot deliver CTRL_BREAK_EVENT (the test needs a console): %s' % error)
+    else:
+        proc.send_signal(signal.SIGINT)
+
+
+@test()
 def interrupt_cleans_up(ctx):
+    """A handled interruption stops the run, removes every temporary file and keeps the previous output."""
     wav = ctx.media_dir / 'noise-900.wav'
     ctx.make_wav(wav, 900)
     long_video = ctx.make_video(ctx.media_dir / 'long.mp4', ['-c:a', 'aac', '-b:a', '128k'], seconds=900, wav=wav)
     wav.unlink()
     work = ctx.new_dir('interrupt')
-    proc = subprocess.Popen([ctx.videowmark, 'add', str(long_video), str(work / 'out.mp4'), PAYLOAD], env=ctx.env(),
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    deadline = time.time() + 120
-    while time.time() < deadline and proc.poll() is None and not list(ctx.tmp.iterdir()):
-        time.sleep(0.02)
-    if proc.poll() is not None:
-        raise Skip('videowmark finished before it could be interrupted')
-    proc.send_signal(signal.SIGINT)
-    try:
-        proc.wait(timeout=60)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        raise AssertionError('videowmark did not stop after SIGINT')
+    out = work / 'out.mp4'
+    sentinel = b'previous output'
+    out.write_bytes(sentinel)
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP if WINDOWS else 0
+    with console_for_events():
+        proc = subprocess.Popen([ctx.videowmark, 'add', str(long_video), str(out), PAYLOAD], env=ctx.env(),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+        interrupt_run(ctx, proc)
     if proc.returncode == 0:
-        raise Skip('videowmark finished before the signal arrived')
+        raise AssertionError('interrupted videowmark reported success')
     ctx.assert_tmp_clean()
-    if list(work.iterdir()):
-        raise AssertionError('interrupted run left files: %s' % list(work.iterdir()))
+    if out.read_bytes() != sentinel:
+        raise AssertionError('interrupted run modified the existing output')
+    if sorted(p.name for p in work.iterdir()) != ['out.mp4']:
+        raise AssertionError('interrupted run left files: %s' % sorted(p.name for p in work.iterdir()))
+
+
+def interrupt_run(ctx, proc):
+    try:
+        # wait until the audio extraction has started: from then on the 900 s file takes many seconds
+        deadline = time.time() + 120
+        started = False
+        while time.time() < deadline and proc.poll() is None and not started:
+            started = any(p.name == 'original.wav' for d in ctx.tmp.iterdir() if d.is_dir() for p in d.iterdir())
+            time.sleep(0.02)
+        if proc.poll() is not None:
+            raise AssertionError('videowmark ended with %r before the interruption' % proc.returncode)
+        if not started:
+            raise AssertionError('videowmark did not start the audio extraction')
+        send_interrupt(proc)
+        try:
+            proc.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            raise AssertionError('videowmark did not stop after the interruption')
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
 
 
 # ------------------------------------------------------------------------- A/V offsets

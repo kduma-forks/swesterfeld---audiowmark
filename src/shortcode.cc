@@ -25,7 +25,7 @@ using std::vector;
 
 /* Codes from codetables.de / magma online calculator BKLC (GF(2), N, K) */
 
-static vector<vector<int>> block_65_20_20 = {
+static const vector<vector<int>> block_65_20_20 = {
   {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,1,0,1,1,1,1,1,1,1,0,1,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,0,0,1,1,1,0,1,1,1},
   {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,1,1,0,1,0,0,0,0,0,1,1,1,1,0,1,1,0,0,1,0,0,0,0,0,1,1,1,0,1,1,1,1,1,1},
   {0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,1,1,0,1,1,0,1,0,0,0,0,1,1,1,1,0,0,1,0,1,1,0,0,1,1,1,0,1,0,1,0,1,1,0,1,1},
@@ -48,7 +48,7 @@ static vector<vector<int>> block_65_20_20 = {
   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,1,0,1,1,1,0,1,1,1,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,1,1,1,1,0,1,1,1,0,0,1,0,0,0,0,1},
 };
 
-static vector<vector<int>> block_61_16_21 = {
+static const vector<vector<int>> block_61_16_21 = {
   {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,1,0,1,1,1,0,1,0,1,1,1,1,1,1,0,0,1,0,0,0,0,1,0,1,0,0,0,0,0,1,1,0,0,1,0,0,1,0,0},
   {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,1,0,1,1,1,0,1,0,1,1,1,1,1,1,0,0,1,0,0,0,0,1,0,1,0,0,0,0,0,1,1,0,0,1,0,0,1,0},
   {0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,1,0,1,1,1,0,1,0,1,1,1,1,1,1,0,0,1,0,0,0,0,1,0,1,0,0,0,0,0,1,1,0,0,1,0,0,1},
@@ -67,7 +67,7 @@ static vector<vector<int>> block_61_16_21 = {
   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,1,0,0,0,1,0,0,0,1,1,1,1,1,1,1,1,0,1,0,1,1,0,1,0,1,0,1,1,0,1,1,1,1,0,1,0,1,1,1,0,1,1},
 };
 
-static vector<vector<int>> block_56_12_22 = {
+static const vector<vector<int>> block_56_12_22 = {
   { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1 },
   { 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0 },
   { 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0 },
@@ -82,72 +82,58 @@ static vector<vector<int>> block_56_12_22 = {
   { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1 },
 };
 
-static vector<vector<int>> gen_matrix;
-static size_t              gen_in_count = 0;
-static size_t              gen_out_count = 0;
-
-size_t
-short_code_init (size_t k)
+static const vector<vector<int>>& generator_matrix()
 {
-  if (k == 12)
-    {
-      gen_matrix    = block_56_12_22;
-      gen_in_count  = 12;
-      gen_out_count = 56;
-    }
-  else if (k == 16)
-    {
-      gen_matrix    = block_61_16_21;
-      gen_in_count  = 16;
-      gen_out_count = 61;
-    }
-  else if (k == 20)
-    {
-      gen_matrix    = block_65_20_20;
-      gen_in_count  = 20;
-      gen_out_count = 65;
-    }
-  else /* unsupported k */
-    {
-      return 0;
-    }
-  return gen_out_count;
+  if (params().short_k == 12) return block_56_12_22;
+  if (params().short_k == 16) return block_61_16_21;
+  if (params().short_k == 20) return block_65_20_20;
+  throw std::runtime_error("Short code not initialized");
+}
+static size_t generator_output_size()
+{
+  return generator_matrix().front().size();
+}
+size_t short_code_init(size_t k)
+{
+  if (k != 12 && k != 16 && k != 20) return 0;
+  params().short_k = k;
+  return generator_output_size();
 }
 
 vector<int>
 code_encode (ConvBlockType block_type, const vector<int>& in_bits)
 {
-  return Params::payload_short ? short_encode (block_type, in_bits) : conv_encode (block_type, in_bits);
+  return params().payload_short ? short_encode (block_type, in_bits) : conv_encode (block_type, in_bits);
 }
 
 size_t
 code_size (ConvBlockType block_type, size_t msg_size)
 {
-  return Params::payload_short ? short_code_size (block_type, msg_size) : conv_code_size (block_type, msg_size);
+  return params().payload_short ? short_code_size (block_type, msg_size) : conv_code_size (block_type, msg_size);
 }
 
 vector<int>
 code_decode_soft (ConvBlockType block_type, const std::vector<float>& coded_bits, float *error_out)
 {
-  return Params::payload_short ? short_decode_soft (block_type, coded_bits, error_out) : conv_decode_soft (block_type, coded_bits, error_out);
+  return params().payload_short ? short_decode_soft (block_type, coded_bits, error_out) : conv_decode_soft (block_type, coded_bits, error_out);
 }
 
 vector<int>
 short_encode_blk (const vector<int>& in_bits)
 {
-  assert (gen_matrix.size() == in_bits.size());
-  assert (gen_matrix.size() == gen_in_count);
-  assert (gen_matrix[0].size() == gen_out_count);
+  assert (generator_matrix().size() == in_bits.size());
+  assert (generator_matrix().size() == params().short_k);
+  assert (generator_matrix()[0].size() == generator_output_size());
 
   vector<int> out_bits;
-  for (size_t j = 0; j < gen_out_count; j++)
+  for (size_t j = 0; j < generator_output_size(); j++)
     {
       int x = 0;
-      for (size_t bit = 0; bit < gen_in_count; bit++)
+      for (size_t bit = 0; bit < params().short_k; bit++)
         {
           if (in_bits[bit])
             {
-              x ^= gen_matrix[bit][j];
+              x ^= generator_matrix()[bit][j];
             }
         }
       out_bits.push_back (x);
@@ -164,26 +150,26 @@ short_encode (ConvBlockType block_type, const vector<int>& in_bits)
 size_t
 short_code_size (ConvBlockType block_type, size_t msg_size)
 {
-  assert (msg_size == gen_matrix.size());
+  assert (msg_size == generator_matrix().size());
 
-  return conv_code_size (block_type, gen_out_count);
+  return conv_code_size (block_type, generator_output_size());
 }
 
 vector<int>
 short_decode_blk (const vector<int>& coded_bits)
 {
   vector<int> out_bits;
-  for (size_t c = 0; c < size_t (1 << gen_in_count); c++)
+  for (size_t c = 0; c < size_t (1 << params().short_k); c++)
     {
       bool match = true;
-      for (size_t j = 0; j < gen_out_count; j++)
+      for (size_t j = 0; j < generator_output_size(); j++)
         {
           int x = 0;
-          for (size_t bit = 0; bit < gen_in_count; bit++)
+          for (size_t bit = 0; bit < params().short_k; bit++)
             {
               if (c & (1 << bit))
                 {
-                  x ^= gen_matrix[bit][j];
+                  x ^= generator_matrix()[bit][j];
                 }
             }
           if (coded_bits[j] != x)
@@ -194,7 +180,7 @@ short_decode_blk (const vector<int>& coded_bits)
         }
       if (match)
         {
-          for (size_t bit = 0; bit < gen_in_count; bit++)
+          for (size_t bit = 0; bit < params().short_k; bit++)
             {
               if (c & (1 << bit))
                 {

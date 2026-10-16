@@ -47,7 +47,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-== Portable Downloads
+== Portable Downloads and SDKs
 
 GitHub Releases provide portable CLI packages for Windows 7 SP1 x64,
 Linux x86_64/ARM64, and macOS 15+ Intel/Apple Silicon. Download the matching
@@ -55,7 +55,8 @@ Linux x86_64/ARM64, and macOS 15+ Intel/Apple Silicon. Download the matching
 https://github.com/kduma-forks/swesterfeld---audiowmark/releases[GitHub Releases], verify
 `SHA256SUMS`, extract it, and run the program in `bin/`. Linux CLI packages
 use musl and are fully static, so the same executable works on glibc and Alpine
-systems. The executable does not require separately installed audio libraries. Windows packages use MSVCRT and macOS packages use system libraries
+systems. The executable does not require the SDK or separately installed audio
+libraries. Windows packages use MSVCRT and macOS packages use system libraries
 with ad hoc signatures.
 
 The small `cli` archives include WAV/FLAC/MP3/Ogg support. Choose
@@ -69,6 +70,16 @@ The release also provides the technical documentation as self-contained
 `audiowmark-VERSION-docs.pdf` and `audiowmark-VERSION-docs.html`, matching source
 archives, pinned dependency sources, build scripts and licenses.
 See link:docs/releasing.md[release builds and verification].
+
+Applications can use the C ABI version 1 SDK, with separate Linux glibc 2.28+
+and musl variants for both architectures. Each SDK includes its shared
+library, `include/audiowmark.h`, documentation, examples and licenses. Choose
+the SDK matching the application's architecture and C runtime. See
+link:docs/api.md[the C API guide] and link:docs/bindings.md[the Rust and C# guide].
+The `.crate` and `.nupkg` assets are intended for local package use; CI does not
+publish to crates.io or nuget.org. The C# package includes all seven native
+SDK variants.
+
 
 == Adding a Watermark
 

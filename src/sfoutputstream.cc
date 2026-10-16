@@ -107,6 +107,7 @@ SFOutputStream::open (std::function<SNDFILE* (SF_INFO *)> open_func, int n_chann
         }
     }
 
+  std::unique_lock<std::mutex> metadata_lock(sndfile_metadata_mutex());
   m_sndfile = open_func (&sfinfo);
   int error = sf_error (m_sndfile);
   if (error)
@@ -117,6 +118,7 @@ SFOutputStream::open (std::function<SNDFILE* (SF_INFO *)> open_func, int n_chann
 
       return Error (msg);
     }
+  metadata_lock.unlock();
   m_state       = State::OPEN;
   return Error::Code::NONE;
 }
@@ -128,7 +130,7 @@ SFOutputStream::close()
     {
       assert (m_sndfile);
       int status;
-      status = sf_close(m_sndfile);
+      { std::lock_guard<std::mutex> metadata_lock(sndfile_metadata_mutex()); status = sf_close(m_sndfile); }
       m_sndfile = nullptr;
       m_state = State::CLOSED;
       if (status) return Error("sf_close returned an error");

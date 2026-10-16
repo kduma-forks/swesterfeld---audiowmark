@@ -1,6 +1,6 @@
 CHECKS = detect-speed-test block-decoder-test clip-decoder-test \
        pipe-test short-payload-test sync-test sample-rate-test \
-       key-test wav-pipe-test wav-subformat-test test-programs
+       key-test wav-pipe-test wav-subformat-test format-test test-programs
 
 if COND_WITH_FFMPEG
 CHECKS += hls-test raw-format-test testhls-open-failure
@@ -12,7 +12,9 @@ endif
 EXTRA_DIST = detect-speed-test.sh block-decoder-test.sh clip-decoder-test.sh \
        pipe-test.sh short-payload-test.sh sync-test.sh sample-rate-test.sh \
        key-test.sh hls-test.sh wav-pipe-test.sh wav-subformat-test.sh test-programs.sh \
-       raw-format-test.sh full-test.py fixtures/README fixtures/video-vp8.webm
+       raw-format-test.sh format-test.sh data/README.md \
+       data/marked.flac data/marked.mp3 data/marked.ogg data/marked.opus \
+       full-test.py fixtures/README fixtures/video-vp8.webm
 
 check: $(CHECKS)
 
@@ -33,6 +35,9 @@ wav-pipe-test:
 
 wav-subformat-test:
 	Q=1 $(top_srcdir)/tests/wav-subformat-test.sh
+
+format-test:
+	Q=1 $(top_srcdir)/tests/format-test.sh
 
 short-payload-test:
 	Q=1 $(top_srcdir)/tests/short-payload-test.sh

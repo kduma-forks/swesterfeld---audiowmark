@@ -43,7 +43,10 @@ get_time()
 void
 print_memory_usage (const std::string& where)
 {
-#ifndef _WIN32
+  if (engine_quiet()) return;
+#ifdef _WIN32
+  (void) where;
+#else
   printf ("=== memory usage (%s): ===\n", where.c_str());
 
   // Get Peak RSS from getrusage
@@ -190,7 +193,7 @@ string_printf (const char *format, ...)
   return s;
 }
 
-static Log log_level = Log::INFO;
+static thread_local Log log_level = Log::INFO;
 
 void
 set_log_level (Log level)
@@ -201,7 +204,7 @@ set_log_level (Log level)
 static void
 logv (Log log, const char *format, va_list vargs)
 {
-  if (log >= log_level)
+  if (!engine_quiet() && log >= log_level)
     {
       string s = string_vprintf (format, vargs);
 
@@ -217,6 +220,11 @@ error (const char *format, ...)
   va_list ap;
 
   va_start (ap, format);
+  if (engine_quiet()) {
+    string message = string_vprintf(format, ap);
+    va_end(ap);
+    throw EngineError(message);
+  }
   logv (Log::ERROR, format, ap);
   va_end (ap);
 }
@@ -271,3 +279,5 @@ FILE *utf8_fopen(const std::string& path, const char *mode)
   return fopen(path.c_str(), mode);
 #endif
 }
+
+std::mutex& sndfile_metadata_mutex() { static std::mutex mutex; return mutex; }

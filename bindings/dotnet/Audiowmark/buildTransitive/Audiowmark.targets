@@ -1,0 +1,15 @@
+<Project>
+  <!-- Framework does not select NuGet runtime assets. This target runs once,
+       even if both build/ and buildTransitive/ import the file. Add the item
+       before paths/copy/publish are computed, after Framework inference. -->
+  <Target Name="AudiowmarkFrameworkNativeAsset"
+          BeforeTargets="PrepareForBuild;AssignTargetPaths;GetCopyToOutputDirectoryItems"
+          Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+    <Error Condition="'$(PlatformTarget)' != 'x64'" Text="Audiowmark requires PlatformTarget x64 for .NET Framework." />
+    <ItemGroup>
+      <Content Include="$(MSBuildThisFileDirectory)../runtimes/win-x64/native/audiowmark.dll"
+               Link="audiowmark.dll" CopyToOutputDirectory="PreserveNewest"
+               CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -3,6 +3,11 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 : "${TARGET:?}" "${RELEASE_WORK:?}" "${VERSION:?}"
 source "$ROOT/scripts/release/environment.sh"
+case "$VARIANT:$TARGET" in
+  full:win7-x86_64|full:linux-musl-x86_64|full:linux-musl-aarch64|full:macos-x86_64|full:macos-aarch64) ;;
+  full:*) echo "full releases do not support target: $TARGET" >&2; exit 1 ;;
+  *) ;;
+esac
 if ! python3 - "$ROOT/scripts/release" "$DEPS_PREFIX/dependencies.lock.json" "$VARIANT" <<'PY'
 import json,pathlib,sys
 sys.path.insert(0,sys.argv[1])
@@ -27,15 +32,30 @@ PY
 (cd "$RELEASE_WORK/project"; autoreconf -fi)
 mkdir -p "$RELEASE_WORK/build/project" "$RELEASE_WORK/install"
 export PKG_CONFIG='pkg-config --static'
-export AUDIOWMARK_CLI_LDFLAGS=''
+export AUDIOWMARK_CLI_LDFLAGS='' AUDIOWMARK_SHARED_LDFLAGS=''
 case "$TARGET" in
  linux-musl-*)
   export AUDIOWMARK_CLI_LDFLAGS='-all-static'
+  export AUDIOWMARK_SHARED_LDFLAGS='-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL'
+  ;;
+ linux-gnu-*)
+  export AUDIOWMARK_CLI_LDFLAGS='-static-libstdc++ -static-libgcc'
+  export AUDIOWMARK_SHARED_LDFLAGS='-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL'
   ;;
  win7-x86_64)
   export AUDIOWMARK_CLI_LDFLAGS='-all-static'
+  export AUDIOWMARK_SHARED_LDFLAGS='-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL'
   ;;
  macos-*) ;;
+esac
+# Expand optional arrays with ${array[@]+"${array[@]}"}: macOS Bash 3.2
+# otherwise treats an empty array as unset under set -u.
+additional=()
+case "${SANITIZER:-}" in
+ "") ;;
+ asan-ubsan) additional=(--enable-asan --enable-ubsan) ;;
+ tsan) additional=(--enable-tsan) ;;
+ *) echo 'unknown SANITIZER' >&2; exit 1 ;;
 esac
 test_failure() {
  local check_status=$1 log
@@ -46,14 +66,14 @@ test_failure() {
  exit "$check_status"
 }
 pushd "$RELEASE_WORK/build/project" >/dev/null
- configure_options=(--disable-shared --enable-static-deps --without-docs)
+ configure_options=(--enable-static-deps --without-docs)
  if [[ "$VARIANT" == full ]]; then
-   configure_options+=(--enable-videowmark --with-ffmpeg --enable-bundled-tools)
+   configure_options+=(--disable-shared --enable-videowmark --with-ffmpeg --enable-bundled-tools)
  else
-   configure_options+=(--disable-videowmark --without-ffmpeg --disable-bundled-tools)
+   configure_options+=(--enable-shared --disable-videowmark --without-ffmpeg --disable-bundled-tools)
  fi
  "$RELEASE_WORK/project/configure" --prefix="$RELEASE_WORK/install" --libdir="$RELEASE_WORK/install/lib" \
-   "${configure_options[@]}"
+   "${configure_options[@]}" ${additional[@]+"${additional[@]}"}
  make -j"$JOBS"
  if [[ "$VARIANT" == full ]]; then
    exe_suffix=
@@ -65,7 +85,12 @@ pushd "$RELEASE_WORK/build/project" >/dev/null
      chmod +x "src/$program$exe_suffix"
    done
  fi
- make check -j"$JOBS" || test_failure $?
+ if [[ -n "${SANITIZER:-}" ]]; then
+   make -C src check -j"$JOBS" || test_failure $?
+   (cd src && ./testthreadpool) || test_failure $?
+ else
+   make check -j"$JOBS" || test_failure $?
+ fi
  make install
  if [[ "$VARIANT" == full ]]; then
    for program in ffmpeg ffprobe; do
@@ -74,6 +99,7 @@ pushd "$RELEASE_WORK/build/project" >/dev/null
    done
  fi
 popd >/dev/null
+if [[ "${VALIDATION_ONLY:-0}" == 1 ]]; then exit 0; fi
 python3 "$ROOT/scripts/release/package.py" --target "$TARGET" --version "$VERSION" \
  --install "$RELEASE_WORK/install" --licenses "$RELEASE_WORK/licenses" \
  --output "${RELEASE_OUTPUT:-$ROOT/dist}" --work "$RELEASE_WORK/packages" --variant "$VARIANT"

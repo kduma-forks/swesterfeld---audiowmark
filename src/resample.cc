@@ -91,7 +91,7 @@ resample (const WavData& wav_data, int rate)
       return wav_data_out;
     }
   error ("audiowmark: resampling from rate %d to rate %d not supported.\n", wav_data.sample_rate(), rate);
-  exit (1);
+  throw std::runtime_error("Resampling failed");
 }
 
 WavData
@@ -112,7 +112,7 @@ resample_ratio_truncate (const WavData& wav_data, double ratio, int new_rate, do
   if (vresampler.setup (ratio, wav_data.n_channels(), hlen) != 0)
     {
       error ("audiowmark: failed to setup vresampler with ratio=%f\n", ratio);
-      exit (1);
+      throw std::runtime_error("Resampling failed");
     }
 
   process_resampler (vresampler, in.data(), in_size_truncate, out_ref.data(), out_ref.size());

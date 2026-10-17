@@ -210,5 +210,6 @@ thread_local EngineConfig default_config;
 thread_local EngineConfig *active_config = &default_config;
 }
 EngineConfig& params() { return *active_config; }
+bool engine_quiet() { return active_config->quiet; }
 ConfigScope::ConfigScope(EngineConfig& config) : previous(active_config) { active_config = &config; }
 ConfigScope::~ConfigScope() { active_config = previous; }

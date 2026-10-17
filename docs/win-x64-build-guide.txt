@@ -1,3 +1,12 @@
+*** HISTORICAL DOCUMENT: audiowmark 0.6.2 (2024) ***
+
+This guide describes how audiowmark 0.6.2 was built for Windows x64 with a
+Cygwin/MinGW toolchain. It is kept for reference only and no longer matches the
+current sources. In particular, videowmark is no longer a bash script that had to
+be ported by hand: the current source tree builds a native videowmark program with
+make, and the old docs/videowmark-win.cc port was removed. For current Windows
+release builds (portable CLI, SDK and full packages), see docs/releasing.md.
+
 Last update: 05.03.2024
 
 In this step-by-step guide I show how to build Audiowmark
@@ -139,14 +148,11 @@ All created EXE-files will be saved to "C:\audiowmark-0.6.2\src\.libs"
 Note : There is another, significantly smaller version of each EXE file in "C:\audiowmark-0.6.2\src\". Don't use these. They don't work.
 
 
-The last part to do is to build the videowmark.exe.
-The file "C:\audiowmark-0.6.2\src\videowmark" is a linux bash script and can not executed on windows.
-So I ported it to C++.
-To keep it simple, I made only this single CPP file without a header file.
-- Copy the file "C:\audiowmark-0.6.2\docs\videowmark-win.cc" to "C:\audiowmark-0.6.2\src\videowmark.cc"
-- Open Cygwin and and go to the directory "/cygdrive/c/audiowmark-0.6.2/src/"
-- Type in :
-     g++ -o videowmark.exe videowmark.cc
+Current source builds produce a native videowmark.exe with the same "make" call as
+audiowmark.exe. The separate porting step from audiowmark 0.6.2 no longer applies:
+there is no replacement source file to copy over src/videowmark.cc and no separate
+compile command. Current build and packaging instructions are in docs/releasing.md.
+The file lists below describe the historical 0.6.2 distribution, not current packages.
 
 Okay, we are almost finished.
 

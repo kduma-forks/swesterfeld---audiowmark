@@ -16,7 +16,6 @@
  */
 
 #include "utils.hh"
-#include "wmcommon.hh"
 #include <chrono>
 #ifdef _WIN32
 #include <windows.h>
@@ -44,8 +43,10 @@ get_time()
 void
 print_memory_usage (const std::string& where)
 {
-  if (params().quiet) return;
-#ifndef _WIN32
+  if (engine_quiet()) return;
+#ifdef _WIN32
+  (void) where;
+#else
   printf ("=== memory usage (%s): ===\n", where.c_str());
 
   // Get Peak RSS from getrusage
@@ -203,7 +204,7 @@ set_log_level (Log level)
 static void
 logv (Log log, const char *format, va_list vargs)
 {
-  if (!params().quiet && log >= log_level)
+  if (!engine_quiet() && log >= log_level)
     {
       string s = string_vprintf (format, vargs);
 
@@ -219,7 +220,7 @@ error (const char *format, ...)
   va_list ap;
 
   va_start (ap, format);
-  if (params().quiet) {
+  if (engine_quiet()) {
     string message = string_vprintf(format, ap);
     va_end(ap);
     throw EngineError(message);

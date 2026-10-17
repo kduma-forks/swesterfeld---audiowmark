@@ -13,6 +13,9 @@ cmake .
 sudo make install
 cd ..
 export DYLD_LIBRARY_PATH=/usr/local/lib:$DYLD_LIBRARY_PATH
+# zita-resampler's install name is @rpath/libzita-resampler.dylib: record the run path in the programs,
+# so copies of them (tests/full-test.py runs with DYLD_* removed) can load it too
+export LDFLAGS="-Wl,-rpath,/usr/local/lib ${LDFLAGS:-}"
 
 # build audiowmark
 ./autogen.sh
@@ -20,11 +23,8 @@ NPROC=`sysctl -n hw.ncpu`
 make -j $NPROC
 make  -j $NPROC check
 
-# test build audiowmark with ffmpeg support
+# test build audiowmark with ffmpeg support (HLS, videowmark); the tests run with ffmpeg from PATH
 make clean
 ./autogen.sh --with-ffmpeg
 make -j $NPROC
-
-### unfortunately HLS is currently broken on macOS, so although it builds, make check will fail
-###
-###make -j $NPROC check
+make -j $NPROC check

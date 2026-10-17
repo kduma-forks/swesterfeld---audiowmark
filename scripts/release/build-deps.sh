@@ -5,7 +5,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 : "${TARGET:?set TARGET}" "${RELEASE_WORK:?set absolute RELEASE_WORK}"
 mkdir -p "$RELEASE_WORK"
 source "$ROOT/scripts/release/environment.sh"
-args=(--cache "${SOURCE_CACHE:-$RELEASE_WORK/downloads}" --sources "$RELEASE_WORK/sources" --licenses "$RELEASE_WORK/licenses")
+args=(--cache "${SOURCE_CACHE:-$RELEASE_WORK/downloads}" --sources "$RELEASE_WORK/sources" --licenses "$RELEASE_WORK/licenses" --variant "$VARIANT")
 python3 "$ROOT/scripts/release/sources.py" "${args[@]}"
 mkdir -p "$DEPS_PREFIX/lib" "$RELEASE_WORK/build"
 common=(--prefix="$DEPS_PREFIX" --libdir="$DEPS_PREFIX/lib" --disable-shared --enable-static --with-pic)
@@ -68,4 +68,11 @@ if sys.argv[2].startswith('win7-'):
     if re.search(r'\b__imp_(?:FLAC__|sf_)\w*',symbols):
         raise RuntimeError('static libsndfile archive references FLAC/sndfile DLL imports')
 PYCODE
-cp "$ROOT/scripts/release/dependencies.lock.json" "$DEPS_PREFIX/dependencies.lock.json"
+if [[ "$VARIANT" == full ]]; then
+  "$ROOT/scripts/release/build-ffmpeg.sh"
+fi
+# Written last: cache presence therefore means every selected dependency was
+# built and the sentinel describes the exact variant and lock contents.
+python3 "$ROOT/scripts/release/sources.py" \
+  --cache "${SOURCE_CACHE:-$RELEASE_WORK/downloads}" --variant "$VARIANT" \
+  --write-manifest "$DEPS_PREFIX/dependencies.lock.json"

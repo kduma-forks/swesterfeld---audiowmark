@@ -1,6 +1,6 @@
 bin_PROGRAMS = audiowmark
 if COND_VIDEOWMARK
-dist_bin_SCRIPTS = videowmark
+bin_PROGRAMS += videowmark
 endif
 
 ENGINE_SRC = utils.hh utils.cc convcode.hh convcode.cc random.hh random.cc wavdata.cc wavdata.hh \
@@ -9,10 +9,12 @@ ENGINE_SRC = utils.hh utils.cc convcode.hh convcode.cc random.hh random.cc wavda
 	     rawconverter.cc rawconverter.hh mp3inputstream.cc mp3inputstream.hh wmcommon.cc wmcommon.hh fft.cc fft.hh \
 	     limiter.cc limiter.hh shortcode.cc shortcode.hh mpegts.cc mpegts.hh hls.cc hls.hh audiobuffer.hh \
 	     wmget.cc wmadd.cc syncfinder.cc syncfinder.hh wmspeed.cc wmspeed.hh threadpool.cc threadpool.hh \
-	     resample.cc resample.hh wavpipeinputstream.cc wavpipeinputstream.hh wavchunkloader.cc wavchunkloader.hh
+	     resample.cc resample.hh wavpipeinputstream.cc wavpipeinputstream.hh wavchunkloader.cc wavchunkloader.hh \
+	     process.cc process.hh
 COMMON_LIBS = $(SNDFILE_LIBS) $(FFTW_LIBS) $(LIBGCRYPT_LIBS) $(LIBMPG123_LIBS) $(FFMPEG_LIBS) $(LTLIBZITA_RESAMPLER)
 if COND_WINDOWS
-COMMON_LIBS += -lbcrypt
+# process.cc: security descriptors for private temporary directories
+COMMON_LIBS += -ladvapi32 -lbcrypt
 endif
 AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_builddir)
 AM_CXXFLAGS = $(SNDFILE_CFLAGS) $(FFTW_CFLAGS) $(LIBGCRYPT_CFLAGS) $(LIBMPG123_CFLAGS) $(FFMPEG_CFLAGS) -fvisibility=hidden -fvisibility-inlines-hidden
@@ -48,7 +50,18 @@ libaudiowmark_la_LDFLAGS += -export-symbols-regex '^audiowmark_'
 endif
 endif
 
-noinst_PROGRAMS = testconvcode testrandom testmp3 teststream testlimiter testshortcode testmpegts testthreadpool testrawconverter testwavformat
+# videowmark only drives ffprobe, ffmpeg and audiowmark; it does not need the audio libraries
+videowmark_SOURCES = videowmark.cc utils.hh utils.cc process.cc process.hh
+videowmark_CPPFLAGS = $(AM_CPPFLAGS)
+videowmark_LDFLAGS = $(AUDIOWMARK_CLI_LDFLAGS)
+if COND_WINDOWS
+videowmark_LDFLAGS += -lshell32 -ladvapi32
+endif
+
+noinst_PROGRAMS = testconvcode testrandom testmp3 teststream testlimiter testshortcode testmpegts testthreadpool \
+		  testrawconverter testwavformat testprocess
+testprocess_SOURCES = testprocess.cc
+testprocess_LDADD = libengine.la $(COMMON_LIBS)
 testconvcode_SOURCES = testconvcode.cc
 testconvcode_LDADD = libengine.la $(COMMON_LIBS)
 testrandom_SOURCES = testrandom.cc
@@ -74,6 +87,12 @@ check_PROGRAMS = testapi
 TESTS = testapi
 testapi_SOURCES = testapi.cc
 testapi_LDADD = $(SDK_LIB) libengine.la $(COMMON_LIBS)
+testapi_CPPFLAGS = $(AM_CPPFLAGS)
+if COND_WINDOWS_STATIC_SDK
+# Full releases disable shared libraries, so libtool selects the static SDK
+# archive. Suppress dllimport references in this in-tree test consumer.
+testapi_CPPFLAGS += -DAUDIOWMARK_STATIC
+endif
 if COND_WITH_FFMPEG
 libengine_la_SOURCES += hlsoutputstream.cc hlsoutputstream.hh
 noinst_PROGRAMS += testhls

@@ -1,4 +1,4 @@
-name: Portable release packages
+name: Release packages
 on:
   release:
     types: [published]
@@ -30,14 +30,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        variant: [cli, full]
+        target: [linux-musl-x86_64, linux-musl-aarch64, win7-x86_64, macos-x86_64, macos-aarch64]
         include:
           - target: linux-musl-x86_64
             runner: ubuntu-24.04
           - target: linux-musl-aarch64
-            runner: ubuntu-24.04-arm
-          - target: linux-gnu-x86_64
-            runner: ubuntu-24.04
-          - target: linux-gnu-aarch64
             runner: ubuntu-24.04-arm
           - target: win7-x86_64
             runner: windows-2022
@@ -45,10 +43,17 @@ jobs:
             runner: macos-15-intel
           - target: macos-aarch64
             runner: macos-15
+          - target: linux-gnu-x86_64
+            variant: cli
+            runner: ubuntu-24.04
+          - target: linux-gnu-aarch64
+            variant: cli
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 240
     env:
       TARGET: ${{ matrix.target }}
+      VARIANT: ${{ matrix.variant }}
       VERSION: ${{ needs.metadata.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -61,12 +66,12 @@ jobs:
           msystem: MINGW64
           update: true
           install: >-
-            base-devel git patch autoconf automake libtool
+            base-devel git patch autoconf automake libtool nasm
             mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
             mingw-w64-x86_64-pkgconf mingw-w64-x86_64-python
       - name: macOS build tools
         if: runner.os == 'macOS'
-        run: brew install autoconf automake libtool pkgconf cmake ninja
+        run: brew install autoconf automake libtool pkgconf cmake ninja nasm
       - name: Toolchain cache identity (Unix)
         if: runner.os != 'Windows'
         id: unix-toolchain
@@ -88,10 +93,10 @@ jobs:
         id: native-deps-cache
         with:
           path: |
-            .release/${{ matrix.target }}/prefix
-            .release/${{ matrix.target }}/licenses
-            .release/${{ matrix.target }}/downloads
-          key: release-deps-v1-${{ matrix.target }}-${{ steps.unix-toolchain.outputs.identity || steps.windows-toolchain.outputs.identity }}-${{ hashFiles('scripts/release/dependencies.lock.json', 'scripts/release/images.lock.json', 'scripts/release/build-deps.sh', 'scripts/release/environment.sh', 'scripts/release/sources.py', 'scripts/release/patches/**') }}
+            .release/${{ matrix.variant }}/${{ matrix.target }}/prefix
+            .release/${{ matrix.variant }}/${{ matrix.target }}/licenses
+            .release/${{ matrix.variant }}/${{ matrix.target }}/downloads
+          key: release-deps-v3-${{ matrix.variant }}-${{ matrix.target }}-${{ steps.unix-toolchain.outputs.identity || steps.windows-toolchain.outputs.identity }}-${{ hashFiles('scripts/release/dependencies*.lock.json', 'scripts/release/images.lock.json', 'scripts/release/build-deps.sh', 'scripts/release/build-ffmpeg.sh', 'scripts/release/environment.sh', 'scripts/release/sources.py', 'scripts/release/patches/**') }}
       - name: Linux source build and extracted package smoke
         if: runner.os == 'Linux'
         shell: bash
@@ -102,34 +107,40 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          export RELEASE_WORK="$GITHUB_WORKSPACE/.release/$TARGET"
+          export RELEASE_WORK="$GITHUB_WORKSPACE/.release/$VARIANT/$TARGET"
           scripts/release/build.sh
-          python3 scripts/release/unpack.py --artifacts dist --native .release/unpacked --cli .release/unpacked-cli
-          env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH python3 scripts/release/smoke.py --sdk ".release/unpacked/$TARGET" --cli ".release/unpacked-cli/$TARGET/bin/audiowmark" --fixtures tests/data
+          if [[ "$VARIANT" == full ]]; then
+            python3 scripts/release/diagnose-macos-hls.py --bin-dir "$RELEASE_WORK/install/bin"
+          fi
+          python3 scripts/release/unpack.py --artifacts dist --native .release/native --variant "$VARIANT" --cli ".release/unpacked-$VARIANT"
+          extra=(); if [[ "$VARIANT" == cli ]]; then extra=(--sdk ".release/native/$TARGET"); fi
+          env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH python3 scripts/release/smoke.py "${extra[@]}" --cli ".release/unpacked-$VARIANT/$TARGET/bin/audiowmark" --fixtures tests/data --variant "$VARIANT" --full-tests tests/full-test.py
       - name: Windows source build
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          export RELEASE_WORK="$PWD/.release/$TARGET"
+          export RELEASE_WORK="$PWD/.release/$VARIANT/$TARGET"
           scripts/release/build.sh
       - name: Windows smoke outside MSYS2
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          python scripts/release/unpack.py --artifacts dist --native .release/unpacked --cli .release/unpacked-cli
-          python scripts/release/smoke.py --sdk ".release/unpacked/$env:TARGET" --cli ".release/unpacked-cli/$env:TARGET/bin/audiowmark.exe" --fixtures tests/data
+          python scripts/release/unpack.py --artifacts dist --native .release/native --variant "$env:VARIANT" --cli ".release/unpacked-$env:VARIANT"
+          $extra = @()
+          if ($env:VARIANT -eq 'cli') { $extra = @('--sdk', ".release/native/$env:TARGET") }
+          python scripts/release/smoke.py @extra --cli ".release/unpacked-$env:VARIANT/$env:TARGET/bin/audiowmark.exe" --fixtures tests/data --variant "$env:VARIANT" --full-tests tests/full-test.py
       - name: Cache completed source dependencies
-        if: always() && steps.native-deps-cache.outputs.cache-hit != 'true' && steps.native-deps-cache.outputs.cache-primary-key != '' && hashFiles(format('.release/{0}/prefix/dependencies.lock.json', matrix.target)) != ''
+        if: always() && steps.native-deps-cache.outputs.cache-hit != 'true' && steps.native-deps-cache.outputs.cache-primary-key != '' && hashFiles(format('.release/{0}/{1}/prefix/dependencies.lock.json', matrix.variant, matrix.target)) != ''
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
-            .release/${{ matrix.target }}/prefix
-            .release/${{ matrix.target }}/licenses
-            .release/${{ matrix.target }}/downloads
+            .release/${{ matrix.variant }}/${{ matrix.target }}/prefix
+            .release/${{ matrix.variant }}/${{ matrix.target }}/licenses
+            .release/${{ matrix.variant }}/${{ matrix.target }}/downloads
           key: ${{ steps.native-deps-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: native-${{ matrix.target }}
+          name: native-${{ matrix.variant }}-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
   sources:
@@ -147,6 +158,35 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-sources
+          path: dist/*
+          if-no-files-found: error
+  documentation:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          persist-credentials: false
+      - name: Documentation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends autoconf automake libtool pkg-config g++ make \
+            libsndfile1-dev libfftw3-dev libgcrypt20-dev libmpg123-dev libzita-resampler-dev \
+            pandoc graphviz gnuplot-nox python3-pygraphviz python3-pandocfilters \
+            texlive-xetex texlive-latex-extra texlive-fonts-recommended lmodern poppler-utils
+      - name: Build and verify standalone PDF and HTML
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.metadata.outputs.sha }}
+          DOCS_BROWSER: google-chrome
+        run: scripts/release/build-docs.sh
+      - name: Release asset regression tests
+        run: python3 scripts/release/test-assets.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-documentation
           path: dist/*
           if-no-files-found: error
   language-packages:
@@ -313,7 +353,7 @@ jobs:
             .release/sanitizer-deps/downloads
           key: ${{ steps.sanitizer-deps-cache.outputs.cache-primary-key }}
   verify-assets:
-    needs: [metadata, native, sources, language-packages, consumers, sanitizers]
+    needs: [metadata, native, sources, documentation, language-packages, consumers, sanitizers]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -332,6 +372,10 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: release-sources
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-documentation
           path: dist
       - name: Verify complete asset set and generate checksums
         env:

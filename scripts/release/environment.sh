@@ -3,6 +3,11 @@
 set -euo pipefail
 : "${TARGET:?set release target}"
 : "${RELEASE_WORK:?set absolute work directory}"
+export VARIANT="${VARIANT:-cli}"
+case "$VARIANT" in
+  cli|full) ;;
+  *) echo "unknown release variant: $VARIANT (expected cli or full)" >&2; return 1 ;;
+esac
 export DEPS_PREFIX="$RELEASE_WORK/prefix"
 export PATH="$DEPS_PREFIX/bin:$PATH"
 export PKG_CONFIG_LIBDIR="$DEPS_PREFIX/lib/pkgconfig:$DEPS_PREFIX/share/pkgconfig"
@@ -12,6 +17,7 @@ export CXXFLAGS="-O2 -fPIC -fvisibility=hidden -fvisibility-inlines-hidden"
 export CPPFLAGS="-I$DEPS_PREFIX/include"
 export LDFLAGS="-L$DEPS_PREFIX/lib"
 export CC="${CC:-gcc}" CXX="${CXX:-g++}" AR="${AR:-ar}" RANLIB="${RANLIB:-ranlib}"
+export STRIP="${STRIP:-strip}"
 case "$TARGET" in
   win7-x86_64)
     [[ "${MSYSTEM:-}" == MINGW64 ]] || { echo 'Windows releases require MINGW64/MSVCRT, never UCRT' >&2; return 1; }

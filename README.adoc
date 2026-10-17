@@ -59,6 +59,18 @@ systems. The executable does not require the SDK or separately installed audio
 libraries. Windows packages use MSVCRT and macOS packages use system libraries
 with ad hoc signatures.
 
+The small `cli` archives include WAV/FLAC/MP3/Ogg support. Choose
+`audiowmark-VERSION-full-TARGET` for HLS and video watermarking: these archives
+also contain native `videowmark`, `ffmpeg` and `ffprobe` programs. Keep all four
+programs together in `bin/`; no Bash, Python or separately installed FFmpeg is
+needed. The bundled FFmpeg processes local media files and HLS playlists;
+network protocols, capture devices and hardware acceleration are disabled.
+
+The release also provides the technical documentation as self-contained
+`audiowmark-VERSION-docs.pdf` and `audiowmark-VERSION-docs.html`, matching source
+archives, pinned dependency sources, build scripts and licenses.
+See link:docs/releasing.md[release builds and verification].
+
 Applications can use the C ABI version 1 SDK, with separate Linux glibc 2.28+
 and musl variants for both architectures. Each SDK includes its shared
 library, `include/audiowmark.h`, documentation, examples and licenses. Choose
@@ -68,10 +80,6 @@ The `.crate` and `.nupkg` assets are intended for local package use; CI does not
 publish to crates.io or nuget.org. The C# package includes all seven native
 SDK variants.
 
-Portable archives include WAV/FLAC/MP3/Ogg support. FFmpeg, HLS and `videowmark`
-are available through an optional source build. The release also provides
-matching source archives, pinned dependency sources, build scripts and
-licenses. See link:docs/releasing.md[release builds and verification].
 
 == Adding a Watermark
 
@@ -400,7 +408,15 @@ clips.
 == Video Files
 
 For video files, `videowmark` can be used to add a watermark to the audio track
-of video files. To add a watermark, use
+of video files. The full download contains a native program on all supported
+platforms. It requires one audio stream and one video stream, and matching
+input/output file extensions. Video is copied without recompression. Audio
+keeps its codec: AAC, MP3, Opus, Vorbis, FLAC or PCM; unsupported audio codecs
+are rejected by `add` without automatic conversion to another codec. Only
+the selected video and audio streams are written to the output.
+
+An existing output file is replaced only after successful processing. Input
+and output must be different files. To add a watermark, use
 
 [subs=+quotes]
 ....
@@ -655,7 +671,8 @@ To enable these as dependencies and build `audiowmark` with HLS support, use the
 ....
 
 In addition to the libraries, `audiowmark` also uses the two command line
-programs from ffmpeg, so they need to be installed:
+programs from ffmpeg. Full download archives include both; source builds
+require them beside `audiowmark` or on `PATH`:
 
 * ffmpeg
 * ffprobe
@@ -772,9 +789,13 @@ installed.
 For the portable Windows 7 SP1 x64 package and MINGW64/MSVCRT source recipe,
 see link:docs/releasing.md[release builds]. Cygwin is an alternative source
 build environment, including for `videowmark`. Andreas Strohmeier provided
-https://raw.githubusercontent.com/swesterfeld/audiowmark/master/docs/win-x64-build-guide.txt[*build instructions for Cygwin*].
+link:docs/win-x64-build-guide.txt[*historical build instructions for Cygwin (audiowmark 0.6.2)*]; they are outdated and kept for reference.
 
 == Dependencies
+
+The HLS and video integration tests in `make check` require Python 3.8 or
+newer when building with FFmpeg and `videowmark`. Python is only a test
+dependency; the installed programs do not need it.
 
 If you compile from source, `audiowmark` needs the following libraries:
 

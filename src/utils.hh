@@ -151,6 +151,11 @@ public:
 std::mutex& sndfile_metadata_mutex();
 
 class EngineError : public std::runtime_error { public: using std::runtime_error::runtime_error; };
+
+/* True while an SDK call runs (log output suppressed, error() throws EngineError). The engine defines
+ * this from its thread-local configuration; helper programs without engine (videowmark) define it as false.
+ */
+bool engine_quiet();
 FILE *utf8_fopen(const std::string& path, const char *mode);
 #ifdef _WIN32
 std::wstring utf8_wide(const std::string& text);

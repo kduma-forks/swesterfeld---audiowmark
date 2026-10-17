@@ -20,6 +20,7 @@
 
 #include "audiostream.hh"
 #include "audiobuffer.hh"
+#include "process.hh"
 
 #include <assert.h>
 
@@ -65,6 +66,7 @@ class HLSOutputStream : public AudioOutputStream {
     CLOSED
   };
   State             m_state = State::NEW;
+  Process::InterruptGuard m_interrupt_guard;
 
   Error add_stream (const AVCodec **codec, enum AVCodecID codec_id);
   Error open_audio (const AVCodec *codec, AVDictionary *opt_arg);
@@ -76,6 +78,7 @@ class HLSOutputStream : public AudioOutputStream {
   };
   EncResult write_audio_frame (Error& err);
   void close_stream();
+  Error release_output (bool write_trailer);
   AVFrame *alloc_audio_frame (AVSampleFormat sample_fmt, const AVChannelLayout *channel_layout, int sample_rate, int nb_samples, Error& err);
 
   int write_frame (const AVRational *time_base, AVStream *st, AVPacket *pkt);

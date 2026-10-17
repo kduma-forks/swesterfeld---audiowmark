@@ -7,6 +7,7 @@ import os
 import pathlib
 import struct
 import subprocess
+import sys
 import tempfile
 import wave
 
@@ -114,11 +115,13 @@ def exercise_sdk(sdk):
     print('extracted SDK smoke passed')
 
 
-def exercise_cli(cli, fixtures):
+def exercise_cli(cli, fixtures, variant='cli', full_tests=None):
     cli = pathlib.Path(cli).resolve()
     fixtures = pathlib.Path(fixtures).resolve()
     metadata = json.loads(
         (cli.parent.parent / 'metadata.json').read_text(encoding='utf-8'))
+    if metadata.get('variant', metadata.get('kind')) != variant:
+        raise RuntimeError('package variant mismatch')
     fixture_paths = [fixtures / name for name in FIXTURE_NAMES]
     missing_fixtures = [str(path) for path in fixture_paths if not path.is_file()]
     if missing_fixtures:
@@ -249,7 +252,16 @@ def exercise_cli(cli, fixtures):
                 stdout=subprocess.PIPE, text=True, encoding='utf-8').stdout
             require_payload(json.loads(fixture_json), TEST_MSG)
 
-    print('extracted CLI smoke passed')
+    if variant == 'full':
+        # videowmark, ffmpeg and ffprobe beside the audiowmark under test, empty PATH inside the tests
+        with tempfile.TemporaryDirectory(
+                prefix='audiowmark-full-package-') as directory:
+            subprocess.run(
+                [sys.executable, str(full_tests), '--bin-dir',
+                 str(cli.parent), '--smoke'],
+                cwd=directory, env=env, check=True)
+
+    print('extracted ' + variant + ' smoke passed')
 
 
 def main():
@@ -257,11 +269,17 @@ def main():
     parser.add_argument('--sdk', type=pathlib.Path)
     parser.add_argument('--cli', type=pathlib.Path)
     parser.add_argument('--fixtures', type=pathlib.Path)
+    parser.add_argument('--variant', choices=('cli', 'full'), default='cli')
+    parser.add_argument('--full-tests', type=pathlib.Path,
+                        help='full-test.py from the same source revision (required for --variant full)')
     args = parser.parse_args()
     if args.sdk is None and args.cli is None:
         parser.error('at least one of --sdk or --cli is required')
     if args.cli is not None and args.fixtures is None:
         parser.error('--fixtures is required with --cli')
+    if args.variant == 'full' and (args.cli is None or args.full_tests is None
+                                   or not args.full_tests.is_file()):
+        parser.error('--variant full needs --cli and --full-tests naming full-test.py')
 
     sdk = args.sdk.resolve() if args.sdk is not None else None
     cli = args.cli.resolve() if args.cli is not None else None
@@ -269,7 +287,8 @@ def main():
     if sdk is not None:
         exercise_sdk(sdk)
     if cli is not None:
-        exercise_cli(cli, fixtures)
+        exercise_cli(cli, fixtures, args.variant,
+                     args.full_tests.resolve() if args.full_tests else None)
 
 
 if __name__ == '__main__':
